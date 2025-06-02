@@ -1,17 +1,31 @@
 # SSHR
 
 - SSHR là một ứng dụng TUI (Text User Interface) để quản lý và kết nối với các máy chủ thông qua giao diện terminal.
+- Hiện tại chỉ hỗ trợ macOS và Linux (x86_64)
 
-##  UI
+[![Release](https://github.com/hoangneeee/sshr/actions/workflows/release.yml/badge.svg)](https://github.com/hoangneeee/sshr/actions/workflows/release.yml)
+
+## UI
 
 ![image](./docs/preview_1.png)
 
 ## Get started
+
 - `sshr` sẽ đọc file host từ ~/.ssh/config
 
 ## Cài đặt
 
-### For Customer
+### Sử dụng Homebrew (khuyên dùng)
+
+```bash
+# Thêm tap của bạn (chỉ cần chạy lần đầu)
+brew tap hoangneeee/homebrew-tap
+
+# Cài đặt
+brew install sshr
+```
+
+### Cài đặt từ release
 
 ```bash
 curl -L -O https://github.com/hoangneeee/sshr/releases/download/v0.1.0/sshr-x86_64-apple-darwin.tar.gz
@@ -26,13 +40,21 @@ sudo cp sshr-x86_64-apple-darwin/sshr /usr/local/bin/sshr
 ```
 
 ### For Developer
+
 ```bash
 git clone https://github.com/hoangneeee/sshr.git
 
 cd sshr
 
-cargo build --release
+make install
 ```
+
+## Available flags
+
+| Flag        | Short flag | Description             |
+| ----------- | ---------- | ----------------------- |
+| `--version` | `-V`       | Current version of sshr |
+| `--help`    | `-h`       | Show help               |
 
 ## Contribute
 

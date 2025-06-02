@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use chrono::Local;
+use clap::Parser;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event as CrosstermEvent, KeyCode, KeyModifiers},
     execute,
@@ -17,6 +18,13 @@ mod models;
 mod ssh_service;
 
 use app::App;
+
+/// A TUI for managing and connecting to SSH hosts
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    // No need for a custom version flag as clap provides it by default
+}
 
 fn setup_logging() -> Result<()> {
     let log_dir = if cfg!(debug_assertions) {
@@ -58,6 +66,8 @@ fn setup_logging() -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let _args = Args::parse();
+
     // Cài đặt logging
     if let Err(e) = setup_logging() {
         eprintln!("Failed to setup logging: {}", e);

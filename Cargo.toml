@@ -8,6 +8,14 @@ description = "A TUI for managing and connecting to SSH hosts"
 name = "sshr"
 path = "src/main.rs"
 
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+
 [dependencies]
 ratatui = "0.26.0"
 crossterm = { version = "0.27.0", features = ["event-stream"] }
@@ -20,3 +28,4 @@ tokio = { version = "1.45.1", features = ["full"] }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 dirs = "6.0.0"
 chrono = "0.4.41"
+clap = { version = "4.5.39", features = ["derive"] }

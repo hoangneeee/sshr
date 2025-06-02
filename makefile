@@ -13,8 +13,14 @@ release:
 build:
 	cargo build --release
 
-install:
-	cargo install --path .
+install: build
+	@echo "Installing sshr to /usr/local/bin"
+	@mkdir -p /usr/local/bin
+	@cp target/release/sshr /usr/local/bin/
+	@chmod +x /usr/local/bin/sshr
+	@echo "sshr installed successfully"
 
 uninstall:
-	cargo uninstall sshr
+	@echo "Removing sshr"
+	@rm -f /usr/local/bin/sshr
+	@echo "sshr uninstalled"
