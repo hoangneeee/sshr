@@ -1,7 +1,12 @@
 [package]
 name = "sshr"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+description = "A TUI for managing and connecting to SSH hosts"
+
+[[bin]]
+name = "sshr"
+path = "src/main.rs"
 
 [dependencies]
 ratatui = "0.26.0"

@@ -9,51 +9,66 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use std::fs::File;
 use std::{io, time::Duration};
 use tracing_subscriber::{EnvFilter, fmt};
+use std::path::Path;
 
 mod app;
-// mod error;
 mod ui;
 mod models;
 mod ssh_service;
 
 use app::App;
-// use error::Error;
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    // Setup logging
-    let log_dir = "logs";
-    if !std::path::Path::new(log_dir).exists() {
-        std::fs::create_dir_all(log_dir).expect("Failed to create log directory");
-    }
+fn setup_logging() -> Result<()> {
+    let log_dir = if cfg!(debug_assertions) {
+        // Ở chế độ debug: ghi log vào thư mục ./logs
+        let dir = "logs";
+        if !Path::new(dir).exists() {
+            std::fs::create_dir_all(dir).context("Failed to create log directory")?;
+        }
+        dir.to_string()
+    } else {
+        // Ở chế độ release: ghi log vào /tmp/sshr_logs
+        let dir = "/tmp/sshr_logs";
+        if !Path::new(dir).exists() {
+            std::fs::create_dir_all(dir).context("Failed to create /tmp/sshr_logs directory")?;
+        }
+        dir.to_string()
+    };
 
     let log_file_name = format!(
         "{}/sshr_{}.log",
         log_dir,
         Local::now().format("%Y%m%d_%H%M%S")
     );
-    let log_file = File::create(&log_file_name).expect("Failed to create log file");
 
-
-    // Ghi log ra file
+    let log_file = File::create(&log_file_name).context("Failed to create log file")?;
+    
     fmt()
-        // .with_max_level(tracing::Level::DEBUG) // Cách khác để set level
         .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,sshr=debug")),
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("info,sshr=debug")),
         )
         .with_writer(log_file)
-        .with_ansi(false) // Không ghi mã màu ANSI vào file log
+        .with_ansi(false)
         .init();
 
+    tracing::info!("SSHr started (log file: {})", log_file_name);
+    Ok(())
+}
 
-    tracing::debug!("Khởi tạo ứng dụng sshr...");
+#[tokio::main]
+async fn main() -> Result<()> {
+    // Cài đặt logging
+    if let Err(e) = setup_logging() {
+        eprintln!("Failed to setup logging: {}", e);
+        // Vẫn tiếp tục chạy ngay cả khi không setup được logging
+    }
 
     // Setup terminal
     enable_raw_mode().context("Failed to enable raw mode")?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)
         .context("Failed to enter alternate screen or enable mouse capture")?;
-
 
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
@@ -73,12 +88,10 @@ async fn main() -> Result<()> {
     terminal.show_cursor().context("Failed to show cursor")?;
 
     if let Err(err) = res {
-        // Lỗi đã được log trong run_app hoặc bởi anyhow
-        eprintln!("\nApplication error: {:?}", err); // In ra stderr để người dùng thấy nếu TUI bị lỗi nặng
+        eprintln!("\nApplication error: {:?}", err);
         tracing::error!("Application exited with error: {:?}", err);
-
     } else {
-        tracing::info!("sshr exited.");
+        tracing::info!("sshr exited successfully");
     }
 
     Ok(())
