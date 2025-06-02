@@ -18,10 +18,7 @@
 ### Sử dụng Homebrew (khuyên dùng)
 
 ```bash
-# Thêm tap của bạn (chỉ cần chạy lần đầu)
-brew tap hoangneeee/homebrew-tap
-
-# Cài đặt
+brew tap hoangneeee/sshr
 brew install sshr
 ```
 

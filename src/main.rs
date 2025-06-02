@@ -44,9 +44,8 @@ fn setup_logging() -> Result<()> {
     };
 
     let log_file_name = format!(
-        "{}/sshr_{}.log",
-        log_dir,
-        Local::now().format("%Y%m%d_%H%M%S")
+        "{}/sshr_debug.log",
+        log_dir
     );
 
     let log_file = File::create(&log_file_name).context("Failed to create log file")?;
