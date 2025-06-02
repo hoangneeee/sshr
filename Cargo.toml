@@ -1,0 +1,15 @@
+[package]
+name = "sshr"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ratatui = "0.26.0"
+crossterm = { version = "0.27.0", features = ["event-stream"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1.40"
+arboard = "3.3.0"
+anyhow = "1.0.98"
+tokio = { version = "1.45.1", features = ["full"] }
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
