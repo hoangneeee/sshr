@@ -2,8 +2,7 @@ use std::path::PathBuf;
 use std::fs;
 use std::net::ToSocketAddrs;
 use anyhow::{Context, Result};
-use log::debug;
-use serde::{Deserialize, Serialize};
+use crate::models::SshHost; 
 use dirs;
 
 #[derive(Debug)]
@@ -14,21 +13,12 @@ pub struct App {
     pub ssh_config_path: PathBuf,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SshHost {
-    pub alias: String,
-    pub host: String,
-    pub user: String,
-    pub port: Option<u16>,
-    pub description: Option<String>,
-    pub group: Option<String>,
-}
-
 impl Default for App {
     fn default() -> Self {
         let home_dir = dirs::home_dir().expect("Could not find home directory");
         let ssh_config_path = home_dir.join(".ssh").join("config");
         
+        tracing::info!("SSH config path: {:?}", ssh_config_path);
         Self {
             should_quit: false,
             hosts: Vec::new(),
@@ -49,6 +39,7 @@ impl App {
         self.hosts.clear();
 
         if !self.ssh_config_path.exists() {
+            tracing::warn!("System SSH config file not found at {:?}", self.ssh_config_path);
             return Ok(());
         }
 
@@ -63,7 +54,6 @@ impl App {
                 continue;
             }
 
-            debug!("Line: {}", line);
             if line.to_lowercase().starts_with("host ") {
                 // Save previous host if exists
                 if let Some(host) = current_host.take() {
@@ -121,25 +111,33 @@ impl App {
         Ok(())
     }
 
-    pub fn on_key(&mut self, key: char) {
-        match key {
-            'q' => self.should_quit = true,
-            'j' => {
-                if self.selected < self.hosts.len().saturating_sub(1) {
-                    self.selected += 1;
-                }
-            }
-            'k' => {
-                if self.selected > 0 {
-                    self.selected -= 1;
-                }
-            }
-            'r' => {
-                if let Err(e) = self.load_ssh_config() {
-                    eprintln!("Failed to reload SSH config: {}", e);
-                }
-            }
-            _ => {}
+    // Phương thức lấy host đang được chọn
+    pub fn get_selected_host(&self) -> Option<&SshHost> {
+        if self.hosts.is_empty() {
+            None
+        } else {
+            self.hosts.get(self.selected)
         }
     }
+    
+    // Cải thiện điều hướng
+    pub fn select_next(&mut self) {
+        if self.hosts.is_empty() { return; }
+        if self.selected >= self.hosts.len() - 1 {
+            self.selected = 0; // Vòng lên đầu
+        } else {
+            self.selected += 1;
+        }
+    }
+
+    pub fn select_previous(&mut self) {
+        if self.hosts.is_empty() { return; }
+        if self.selected == 0 {
+            self.selected = self.hosts.len() - 1; // Vòng xuống cuối
+        } else {
+            self.selected -= 1;
+        }
+    }
+
+
 }

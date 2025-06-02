@@ -969,7 +969,6 @@ dependencies = [
  "chrono",
  "crossterm",
  "dirs",
- "log",
  "ratatui",
  "serde",
  "serde_json",
