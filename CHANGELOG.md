@@ -9,9 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Read ssh host from ~/.ssh/config
-- Support connect to ssh host
-- Show list ssh host in TUI
+-
 
 ### Changed
 
@@ -19,11 +17,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
--
+- Workflows release work on windows
 
 ### Removed
 
 -
 
 ### Security
+
+## [0.1.0] - 2025-06-02
+
+### Added
+
+- Read ssh host from ~/.ssh/config
+- Support connect to ssh host
+- Show list ssh host in TUI
 

@@ -7,3 +7,5 @@
 /target
 
 source_dump.txt
+
+.env

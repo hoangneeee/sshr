@@ -35,15 +35,18 @@ jobs:
         run: cargo build --release --target ${{ matrix.target }}
         
       - name: Package
+        if: runner.os != 'Windows'
         run: |
           mkdir -p release
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            cp target/${{ matrix.target }}/release/sshr.exe sshr.exe
-            7z a -tzip release/sshr-${{ matrix.target }}.zip sshr.exe
-          else
-            cp target/${{ matrix.target }}/release/sshr sshr
-            tar czf release/sshr-${{ matrix.target }}.${{ matrix.ext }} sshr
-          fi
+          cp target/${{ matrix.target }}/release/sshr sshr
+          tar czf release/sshr-${{ matrix.target }}.${{ matrix.ext }} sshr
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir -p release
+          Copy-Item "target\${{ matrix.target }}\release\sshr.exe" "sshr.exe"
+          7z a -tzip "release\sshr-${{ matrix.target }}.zip" sshr.exe
 
       - name: Upload Release
         uses: softprops/action-gh-release@v1
