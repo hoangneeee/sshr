@@ -2,6 +2,10 @@
 
 - SSHR là một ứng dụng TUI (Text User Interface) để quản lý và kết nối với các máy chủ thông qua giao diện terminal.
 
+##  UI
+
+![image](./docs/preview_1.png)
+
 ## Get started
 - `sshr` sẽ đọc file host từ ~/.ssh/config
 
