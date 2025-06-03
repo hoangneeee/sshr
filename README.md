@@ -1,28 +1,28 @@
-# SSHR
+# 💻 SSHR
 
-- SSHR là một ứng dụng TUI (Text User Interface) để quản lý và kết nối với các máy chủ thông qua giao diện terminal.
-- Hiện tại chỉ hỗ trợ macOS và Linux (x86_64)
+- SSHR is a TUI (Text User Interface) application for managing and connecting to hosts through the terminal interface.
+- Current support only MacOs and Linux (x86_64)
 
 [![Release](https://github.com/hoangneeee/sshr/actions/workflows/release.yml/badge.svg)](https://github.com/hoangneeee/sshr/actions/workflows/release.yml)
 
-## UI
+## 🖥️ UI
 
 ![image](./docs/preview_1.png)
 
-## Get started
+## 🚀 Get started
 
-- `sshr` sẽ đọc file host từ ~/.ssh/config
+- `sshr` will load host from ~/.ssh/config
 
-## Cài đặt
+## 📦 Install
 
-### Sử dụng Homebrew (khuyên dùng)
+### 🍺 Install using Homebrew (recommended)
 
 ```bash
 brew tap hoangneeee/sshr
 brew install sshr
 ```
 
-### Cài đặt từ release
+### ⬇️ Install from release
 
 ```bash
 curl -L -O https://github.com/hoangneeee/sshr/releases/download/v0.1.0/sshr-x86_64-apple-darwin.tar.gz
@@ -36,7 +36,7 @@ tar -xvf sshr-x86_64-apple-darwin.tar.gz
 sudo cp sshr-x86_64-apple-darwin/sshr /usr/local/bin/sshr
 ```
 
-### For Developer
+### 🔨 For Developer
 
 ```bash
 git clone https://github.com/hoangneeee/sshr.git
@@ -46,14 +46,19 @@ cd sshr
 make install
 ```
 
-## Available flags
+## 📝 Available flags
 
 | Flag        | Short flag | Description             |
 | ----------- | ---------- | ----------------------- |
 | `--version` | `-V`       | Current version of sshr |
 | `--help`    | `-h`       | Show help               |
 
-## Contribute
+## 🤝 Contribute
 
-- Nếu bạn muốn đóng góp vào dự án này, hãy fork repository này và tạo pull request.
-- Nếu bạn muốn báo lỗi hoặc đề xuất cải tiến, hãy tạo issue.
+- If you want to contribute to this project, please fork this repository and create a pull request.
+- If you want to report an issue or suggest an improvement, please create an issue.
+
+
+## 📝 License
+
+[Apache License 2.0](./LICENSE)
