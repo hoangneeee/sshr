@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::models::SshHost;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ThemeColors {
     pub primary: String,
@@ -26,17 +28,7 @@ pub struct Theme {
 pub struct AppConfig {
     pub default_theme: String,
     pub themes: Vec<Theme>,
-    pub default_user: Option<String>,
-    pub default_port: Option<u16>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct SshHost {
-    pub name: String,
-    pub user: String,
-    pub host: String,
-    pub port: Option<u16>,
-    pub description: Option<String>,
+    pub ssh_file_config: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -77,11 +69,13 @@ impl Default for Theme {
 
 impl Default for AppConfig {
     fn default() -> Self {
+
+        // Set default ssh config path
+        let ssh_config_path = dirs::home_dir().unwrap().join(".ssh").join("config");
         Self {
             default_theme: "default".to_string(),
             themes: vec![Theme::default()],
-            default_user: None,
-            default_port: None,
+            ssh_file_config: ssh_config_path.to_str().unwrap().to_string(),
         }
     }
 }
@@ -120,15 +114,18 @@ impl ConfigManager {
         })
     }
 
+    // pub fn get_config_dir(&self) -> &Path {
+    //     &self.config_dir
+    // }
+
     pub fn load_config(&self) -> Result<AppConfig> {
         // If config file doesn't exist, create it with default values
         if !self.config_file.exists() {
             let default_config = AppConfig::default();
             self.save_config(&default_config)?;
-            return Ok(default_config);
         }
 
-        let content =
+        let content: String =
             fs::read_to_string(&self.config_file).context("Failed to read config file")?;
 
         let mut config: AppConfig =
@@ -153,22 +150,23 @@ impl ConfigManager {
         Ok(())
     }
 
-    pub fn get_theme(&self, theme_name: Option<&str>) -> Result<Theme> {
-        let config = self.load_config()?;
-        let theme_name = theme_name.unwrap_or(&config.default_theme);
+    // TODO: Add theme support
+    // pub fn get_theme(&self, theme_name: Option<&str>) -> Result<Theme> {
+    //     let config = self.load_config()?;
+    //     let theme_name = theme_name.unwrap_or(&config.default_theme);
 
-        config
-            .themes
-            .iter()
-            .find(|t| t.name == *theme_name)
-            .or_else(|| config.themes.first())
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("No themes available"))
-    }
+    //     config
+    //         .themes
+    //         .iter()
+    //         .find(|t| t.name == *theme_name)
+    //         .or_else(|| config.themes.first())
+    //         .cloned()
+    //         .ok_or_else(|| anyhow::anyhow!("No themes available"))
+    // }
 
-    pub fn get_config_path(&self) -> &Path {
-        &self.config_file
-    }
+    // pub fn get_config_path(&self) -> &Path {
+    //     &self.config_file
+    // }
 
     pub fn load_hosts(&self) -> Result<Vec<SshHost>> {
         // If hosts file doesn't exist, return empty vector
@@ -187,10 +185,7 @@ impl ConfigManager {
         for group in config.groups {
             for mut host in group.hosts {
                 // Set group name for each host
-                host = SshHost {
-                    name: format!("{}:{}", group.name, host.name),
-                    ..host
-                };
+                host.group = Some(group.name.clone());
                 hosts.push(host);
             }
         }
@@ -199,6 +194,11 @@ impl ConfigManager {
     }
 
     pub fn save_hosts(&self, groups: &[HostGroup]) -> Result<()> {
+        // Create hosts file if it doesn't exist
+        if !self.hosts_file.exists() {
+            fs::write(&self.hosts_file, "").context("Failed to create hosts file")?;
+        }
+
         let config = HostsConfig {
             groups: groups.to_vec(),
         };

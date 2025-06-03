@@ -16,7 +16,7 @@ impl SshHost {
             alias,
             host,
             user,
-            port: None,
+            port: Some(22),
             description: None,
             group: None,
         }
