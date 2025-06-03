@@ -20,7 +20,7 @@ mod models;
 mod ssh_service;
 mod ui;
 
-use app::App;
+use app::{App};
 
 /// A TUI for managing and connecting to SSH hosts
 #[derive(Parser, Debug)]
@@ -85,6 +85,7 @@ async fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend).context("Failed to create terminal")?;
 
     // Run the application
+    tracing::info!("Running application");
     let res = run_app(&mut terminal, app).await;
 
     // Restore terminal
@@ -120,7 +121,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                 if key_event.kind == event::KeyEventKind::Press {
                     match key_event.code {
                         KeyCode::Char('q') | KeyCode::Char('Q') => {
-                            app.should_quit = true;
+                            app.handle_key_q()?;
                         }
                         KeyCode::Char('c') if key_event.modifiers == KeyModifiers::CONTROL => {
                             app.should_quit = true; // Ctrl+C to quit
@@ -130,6 +131,19 @@ async fn run_app<B: ratatui::backend::Backend>(
                         }
                         KeyCode::Down | KeyCode::Char('j') => {
                             app.select_next();
+                        }
+                        KeyCode::Char('a') => {
+                            if let Err(e) = app.handle_key_a() {
+                                tracing::error!("Failed to open editor: {}", e);
+                            }
+                        }
+                        KeyCode::Char('d') => {
+                            if let Err(e) = app.handle_key_d() {
+                                tracing::error!("Failed to open editor: {}", e);
+                            }
+                        }
+                        KeyCode::Esc => {
+                            app.handle_key_esc()?;
                         }
                         KeyCode::Enter => {
                             if let Some(selected_host) = app.get_selected_host().cloned() {
@@ -202,19 +216,14 @@ async fn run_app<B: ratatui::backend::Backend>(
                         KeyCode::Char('r') => {
                             // Reload config
                             tracing::info!("Reloading SSH config...");
-                            if let Err(e) = app.load_ssh_config() {
+                            if let Err(e) = app.load_all_hosts() {
                                 tracing::error!("Failed to reload SSH config: {}", e);
                                 // app.status_message = Some(format!("Reload failed: {}", e));
                             } else {
                                 // app.status_message = Some("Config reloaded.".to_string());
                             }
                         }
-                        _ => {
-                            // Handle other keys if needed
-                            // if let KeyCode::Char(c) = key_event.code {
-                            //     // app.on_other_key(c);
-                            // }
-                        }
+                        _ => {}
                     }
                 }
 

@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add formula support homebrew
 - Add version flag
+- Read my config
+- Support reload config
+- Can user custom host file with `hosts.toml`
 
 ### Changed
 

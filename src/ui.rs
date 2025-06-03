@@ -1,4 +1,4 @@
-use crate::app::App;
+use crate::app::{App};
 use ratatui::{
     backend::Backend,
     layout::{Constraint, Direction, Layout, Rect},
@@ -25,7 +25,7 @@ pub fn draw<B: Backend>(f: &mut Frame, app: &mut App) {
 }
 
 fn draw_hosts_list<B: Backend>(f: &mut Frame, app: &App, area: Rect) {
-    let title = format!("SSHr v0.1.0");
+    let title = format!("SSHr v{}", "0.1.0");
     let block = Block::default()
         .borders(Borders::ALL)
         .title_style(Style::default().add_modifier(Modifier::BOLD))
@@ -109,7 +109,7 @@ fn draw_footer<B: Backend>(f: &mut Frame, _app: &App, area: Rect) {
         .style(Style::default().fg(Color::Gray));
     
     // Right side: Action help
-    let action_help = Paragraph::new("[a] Add  [e] Edit  [d] Delete  [q] Quit")
+    let action_help = Paragraph::new("[a] Add  [e] Edit  [d] Delete [r] Reload [q] Quit")
         .style(Style::default().fg(Color::Gray))
         .alignment(ratatui::layout::Alignment::Right);
 

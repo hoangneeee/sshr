@@ -1,0 +1,87 @@
+# SSH Hosts Configuration File
+# This file contains all your SSH host configurations organized in groups
+# Save this file as 'hosts.toml' in your config directory
+
+# The root of the config is a vector of HostGroup
+[[groups]]
+name = "Default"
+description = "Default group for all hosts"
+
+# Hosts in the default group
+[[groups.hosts]]
+alias = "local-server"
+host = "localhost"
+user = "your_username"
+port = 22
+description = "Local development server"
+
+[[groups.hosts]]
+alias = "prod-web"
+host = "192.168.1.100"
+user = "admin"
+port = 2222
+description = "Production web server"
+
+# Additional groups
+[[groups]]
+name = "Production"
+description = "Production servers"
+
+[[groups.hosts]]
+alias = "prod-db"
+host = "db.prod.example.com"
+user = "dbadmin"
+port = 22
+
+[[groups.hosts]]
+alias = "prod-app"
+host = "app.prod.example.com"
+user = "appuser"
+port = 22
+
+[[groups]]
+name = "Staging"
+description = "Staging environment servers"
+
+[[groups.hosts]]
+alias = "staging-web"
+host = "web.staging.example.com"
+user = "deploy"
+port = 22
+
+# Example with additional fields (if supported by your SshHost struct)
+[[groups]]
+name = "Special"
+description = "Servers with special configurations"
+
+[[groups.hosts]]
+alias = "special-server"
+host = "special.example.com"
+user = "special"
+port = 2222
+# Additional fields would go here if they exist in SshHost struct
+# For example:
+# identity_file = "~/.ssh/special_key.pem"
+# proxy_jump = "bastion@jump.example.com"
+
+[[groups.hosts]]
+alias = "behind-bastion"
+host = "10.0.0.10"
+user = "ec2-user"
+port = 22
+# Example of jump host configuration (if supported)
+# jump_host = "bastion.example.com"
+# jump_user = "bastion-user"
+# jump_port = 22
+
+# You can add more groups and hosts as needed
+# [[groups]]
+# name = "Group Name"
+# description = "Group description"
+#
+# [[groups.hosts]]
+# alias = "host-alias"
+# host = "hostname"
+# user = "username"
+# port = 22
+# description = "Optional description"
