@@ -4,6 +4,7 @@ use std::net::ToSocketAddrs;
 use anyhow::{Context, Result};
 use crate::models::SshHost; 
 use dirs;
+use crate::config::{ConfigManager};
 
 #[derive(Debug)]
 pub struct App {
@@ -11,6 +12,7 @@ pub struct App {
     pub hosts: Vec<SshHost>,
     pub selected: usize,
     pub ssh_config_path: PathBuf,
+    pub config_manager: ConfigManager,
 }
 
 impl Default for App {
@@ -18,12 +20,23 @@ impl Default for App {
         let home_dir = dirs::home_dir().expect("Could not find home directory");
         let ssh_config_path = home_dir.join(".ssh").join("config");
         
+        // Initialize config manager
+        let config_manager = ConfigManager::new().unwrap_or_else(|e| {
+            eprintln!("Failed to initialize config manager: {}", e);
+            std::process::exit(1);
+        });
+        config_manager.load_config().unwrap_or_else(|e| {
+            eprintln!("Failed to load config: {}", e);
+            std::process::exit(1);
+        });
+
         tracing::info!("SSH config path: {:?}", ssh_config_path);
         Self {
             should_quit: false,
             hosts: Vec::new(),
             selected: 0,
             ssh_config_path,
+            config_manager,
         }
     }
 }
@@ -32,6 +45,7 @@ impl App {
     pub fn new() -> Result<Self> {
         let mut app = Self::default();
         app.load_ssh_config()?;
+        app.load_custom_hosts()?;
         Ok(app)
     }
 
@@ -111,7 +125,30 @@ impl App {
         Ok(())
     }
 
-    // Phương thức lấy host đang được chọn
+    pub fn load_custom_hosts(&mut self) -> Result<()> {
+        match self.config_manager.load_hosts() {
+            Ok(custom_hosts) => {
+                // Convert SshHost from config to the app's SshHost model
+                self.hosts = custom_hosts.into_iter().map(|host| {
+                    crate::models::SshHost {
+                        alias: host.name,
+                        host: host.host,
+                        user: host.user,
+                        port: host.port,
+                        description: host.description,
+                        group: None, // Groups are already part of the alias
+                    }
+                }).collect();
+                Ok(())
+            }
+            Err(e) => {
+                tracing::error!("Failed to load custom hosts: {}", e);
+                Ok(())
+            }
+        }
+    }
+
+    // Get selected host
     pub fn get_selected_host(&self) -> Option<&SshHost> {
         if self.hosts.is_empty() {
             None
@@ -120,11 +157,11 @@ impl App {
         }
     }
     
-    // Cải thiện điều hướng
+    // Improve navigation
     pub fn select_next(&mut self) {
         if self.hosts.is_empty() { return; }
         if self.selected >= self.hosts.len() - 1 {
-            self.selected = 0; // Vòng lên đầu
+            self.selected = 0; // Loop back to the first host
         } else {
             self.selected += 1;
         }
@@ -133,11 +170,9 @@ impl App {
     pub fn select_previous(&mut self) {
         if self.hosts.is_empty() { return; }
         if self.selected == 0 {
-            self.selected = self.hosts.len() - 1; // Vòng xuống cuối
+            self.selected = self.hosts.len() - 1; // Loop back to the last host
         } else {
             self.selected -= 1;
         }
     }
-
-
 }

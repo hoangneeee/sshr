@@ -1,21 +1,24 @@
 use anyhow::{Context, Result};
-use chrono::Local;
 use clap::Parser;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event as CrosstermEvent, KeyCode, KeyModifiers},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event as CrosstermEvent, KeyCode,
+        KeyModifiers,
+    },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::{Terminal, backend::CrosstermBackend};
+use ratatui::{backend::CrosstermBackend, Terminal};
 use std::fs::File;
-use std::{io, time::Duration};
-use tracing_subscriber::{EnvFilter, fmt};
 use std::path::Path;
+use std::{io, time::Duration};
+use tracing_subscriber::{fmt, EnvFilter};
 
 mod app;
-mod ui;
+mod config;
 mod models;
 mod ssh_service;
+mod ui;
 
 use app::App;
 
@@ -28,14 +31,14 @@ struct Args {
 
 fn setup_logging() -> Result<()> {
     let log_dir = if cfg!(debug_assertions) {
-        // Ở chế độ debug: ghi log vào thư mục ./logs
+        // In debug mode, log to ./logs
         let dir = "logs";
         if !Path::new(dir).exists() {
             std::fs::create_dir_all(dir).context("Failed to create log directory")?;
         }
         dir.to_string()
     } else {
-        // Ở chế độ release: ghi log vào /tmp/sshr_logs
+        // In release mode, log to /tmp/sshr_logs
         let dir = "/tmp/sshr_logs";
         if !Path::new(dir).exists() {
             std::fs::create_dir_all(dir).context("Failed to create /tmp/sshr_logs directory")?;
@@ -43,17 +46,13 @@ fn setup_logging() -> Result<()> {
         dir.to_string()
     };
 
-    let log_file_name = format!(
-        "{}/sshr_debug.log",
-        log_dir
-    );
+    let log_file_name = format!("{}/sshr_debug.log", log_dir);
 
     let log_file = File::create(&log_file_name).context("Failed to create log file")?;
-    
+
     fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info,sshr=debug")),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,sshr=debug")),
         )
         .with_writer(log_file)
         .with_ansi(false)
@@ -67,11 +66,14 @@ fn setup_logging() -> Result<()> {
 async fn main() -> Result<()> {
     let _args = Args::parse();
 
-    // Cài đặt logging
+    // Setup logging
     if let Err(e) = setup_logging() {
         eprintln!("Failed to setup logging: {}", e);
-        // Vẫn tiếp tục chạy ngay cả khi không setup được logging
+        // Continue running even if logging setup fails
     }
+
+    // Initialize the app with configuration
+    let app = App::new().context("Failed to initialize application")?;
 
     // Setup terminal
     enable_raw_mode().context("Failed to enable raw mode")?;
@@ -80,10 +82,9 @@ async fn main() -> Result<()> {
         .context("Failed to enter alternate screen or enable mouse capture")?;
 
     let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    let mut terminal = Terminal::new(backend).context("Failed to create terminal")?;
 
-    // Create app and run it
-    let app = App::new().expect("Failed to create app");
+    // Run the application
     let res = run_app(&mut terminal, app).await;
 
     // Restore terminal
@@ -109,20 +110,20 @@ async fn main() -> Result<()> {
 async fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     mut app: App,
-) -> Result<()> { // Trả về anyhow::Result<()>
+) -> Result<()> {
     loop {
         terminal.draw(|f| ui::draw::<B>(f, &mut app))?;
 
         if event::poll(Duration::from_millis(100)).context("Event poll failed")? {
             if let CrosstermEvent::Key(key_event) = event::read().context("Event read failed")? {
-                // Chỉ xử lý khi phím được nhấn (không phải lặp lại khi giữ phím)
-                 if key_event.kind == event::KeyEventKind::Press {
+                // Only handle when key is pressed (not repeated when holding the key)
+                if key_event.kind == event::KeyEventKind::Press {
                     match key_event.code {
                         KeyCode::Char('q') | KeyCode::Char('Q') => {
                             app.should_quit = true;
                         }
                         KeyCode::Char('c') if key_event.modifiers == KeyModifiers::CONTROL => {
-                            app.should_quit = true; // Ctrl+C để thoát
+                            app.should_quit = true; // Ctrl+C to quit
                         }
                         KeyCode::Up | KeyCode::Char('k') => {
                             app.select_previous();
@@ -131,60 +132,75 @@ async fn run_app<B: ratatui::backend::Backend>(
                             app.select_next();
                         }
                         KeyCode::Enter => {
-                            if let Some(selected_host) = app.get_selected_host().cloned() { // Clone để tránh borrow issue
-                                tracing::info!("Enter pressed, selected host: {:?}", selected_host.alias);
+                            if let Some(selected_host) = app.get_selected_host().cloned() {
+                                // Clone to avoid borrow issue
+                                tracing::info!(
+                                    "Enter pressed, selected host: {:?}",
+                                    selected_host.alias
+                                );
 
-                                // 1. Tạm dừng TUI, khôi phục terminal về trạng thái bình thường
+                                // 1. Stop TUI, restore terminal to normal state
                                 disable_raw_mode().context("Failed to disable raw mode for SSH")?;
-                                let mut stdout = io::stdout(); 
+                                let mut stdout = io::stdout();
                                 execute!(
                                     &mut stdout,
                                     LeaveAlternateScreen,
-                                    DisableMouseCapture // Quan trọng: Nếu bạn có dùng mouse capture
+                                    DisableMouseCapture // Important: If you are using mouse capture
                                 )
                                 .context("Failed to leave alternate screen for SSH")?;
-                                terminal.show_cursor().context("Failed to show cursor for SSH")?;
+                                terminal
+                                    .show_cursor()
+                                    .context("Failed to show cursor for SSH")?;
 
-                                // Xóa màn hình trước khi chạy ssh để output của ssh được sạch sẽ
-                                // (Tùy chọn, ssh thường sẽ tự quản lý màn hình)
+                                // Clear screen before running ssh to clean up ssh output
+                                // (Optional, ssh usually manages the screen itself)
                                 // print!("\x1B[2J\x1B[1;1H");
                                 // io::stdout().flush().unwrap();
 
-
-                                // 2. Thực thi lệnh SSH
+                                // 2. Execute SSH command
                                 match ssh_service::connect_to_host(&selected_host) {
                                     Ok(_) => {
-                                        tracing::info!("SSH session for {} ended.", selected_host.alias);
+                                        tracing::info!(
+                                            "SSH session for {} ended.",
+                                            selected_host.alias
+                                        );
                                     }
                                     Err(e) => {
-                                        // Lỗi này sẽ được log, ssh thường tự hiển thị lỗi của nó
-                                        tracing::error!("SSH connection to {} failed: {:?}", selected_host.alias, e);
-                                        // Có thể hiển thị thông báo lỗi ngắn gọn trên TUI sau khi quay lại
+                                        // This error will be logged, ssh usually displays its own error
+                                        tracing::error!(
+                                            "SSH connection to {} failed: {:?}",
+                                            selected_host.alias,
+                                            e
+                                        );
+                                        // You can display a short error message on the TUI after returning
                                         // app.status_message = Some(format!("SSH failed: {}", e));
                                     }
                                 }
 
-                                // 3. Khôi phục TUI
-                                // Quan trọng: phải clear terminal để vẽ lại TUI sau khi ssh kết thúc
-                                terminal.clear().context("Failed to clear terminal post-SSH")?; // Xóa dấu vết của ssh
-                                enable_raw_mode().context("Failed to re-enable raw mode post-SSH")?;
-                                let mut stdout = io::stdout(); 
+                                // 3. Restore TUI
+                                // Important: must clear terminal to redraw TUI after ssh ends
+                                terminal
+                                    .clear()
+                                    .context("Failed to clear terminal post-SSH")?; // Remove ssh traces
+                                enable_raw_mode()
+                                    .context("Failed to re-enable raw mode post-SSH")?;
+                                let mut stdout = io::stdout();
                                 execute!(
                                     &mut stdout,
                                     EnterAlternateScreen,
-                                    EnableMouseCapture // Nếu bạn có dùng mouse capture
+                                    EnableMouseCapture // If you are using mouse capture
                                 )
                                 .context("Failed to re-enter alternate screen post-SSH")?;
-                                // Không cần terminal.show_cursor() ở đây nếu TUI không dùng con trỏ
+                                // No need to call terminal.show_cursor() here if TUI doesn't use cursor
 
-                                // Yêu cầu vẽ lại toàn bộ UI
+                                // Request to redraw the entire UI
                                 terminal.draw(|f| ui::draw::<B>(f, &mut app))?;
-
                             } else {
                                 tracing::warn!("Enter pressed but no host selected.");
                             }
                         }
-                        KeyCode::Char('r') => { // Tải lại config
+                        KeyCode::Char('r') => {
+                            // Reload config
                             tracing::info!("Reloading SSH config...");
                             if let Err(e) = app.load_ssh_config() {
                                 tracing::error!("Failed to reload SSH config: {}", e);
@@ -194,7 +210,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                             }
                         }
                         _ => {
-                            // Xử lý các phím khác nếu cần
+                            // Handle other keys if needed
                             // if let KeyCode::Char(c) = key_event.code {
                             //     // app.on_other_key(c);
                             // }
