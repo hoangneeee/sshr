@@ -29,12 +29,10 @@ sshr/
 │ ├── app.rs # App state và logic chính
 │ ├── ui.rs # Vẽ giao diện TUI
 │ ├── ssh_service.rs # Chạy ssh, scp, build command
-│ ├── config_manager.rs # Đọc / ghi danh sách host
+│ ├── config.rs # Đọc / ghi danh sách host
 │ ├── models.rs # Struct như SshHost, Group
 │ ├── event.rs # Xử lý event
 │ └── error.rs # Xử lý error
-├── assets/
-│ └── default_config.json
 
 # UI mockup ý tưởng (ý tưởng TUI)
 
