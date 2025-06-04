@@ -4,7 +4,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Span, Line},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, List, ListItem, Paragraph, Clear},
     Frame,
 };
 
@@ -14,6 +14,7 @@ pub fn draw<B: Backend>(f: &mut Frame, app: &mut App) {
         .constraints(
             [
                 Constraint::Min(3),  // Main content
+                Constraint::Length(1), // Status bar
                 Constraint::Length(3), // Footer
             ]
             .as_ref(),
@@ -21,12 +22,55 @@ pub fn draw<B: Backend>(f: &mut Frame, app: &mut App) {
         .split(f.size());
 
     draw_hosts_list::<B>(f, app, chunks[0]);
-    draw_footer::<B>(f, app, chunks[1]);
+    draw_status_bar::<B>(f, app, chunks[1]);
+    draw_footer::<B>(f, app, chunks[2]);
+
+    // Draw loading overlay if connecting
+    if app.is_connecting {
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title("Connecting...")
+            .title_style(Style::default().add_modifier(Modifier::BOLD));
+        
+        let area = centered_rect(60, 5, f.size());
+        let paragraph = Paragraph::new("Connecting to host... Please wait...")
+            .block(block)
+            .alignment(ratatui::layout::Alignment::Center);
+        
+        f.render_widget(Clear, area); // This clears the area before rendering
+        f.render_widget(paragraph, area);
+    }
+}
+
+/// Helper function to center a rectangle with given width and height
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(
+            [
+                Constraint::Percentage((100 - percent_y) / 2),
+                Constraint::Percentage(percent_y),
+                Constraint::Percentage((100 - percent_y) / 2),
+            ]
+            .as_ref(),
+        )
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints(
+            [
+                Constraint::Percentage((100 - percent_x) / 2),
+                Constraint::Percentage(percent_x),
+                Constraint::Percentage((100 - percent_x) / 2),
+            ]
+            .as_ref(),
+        )
+        .split(popup_layout[1])[1]
 }
 
 fn draw_hosts_list<B: Backend>(f: &mut Frame, app: &App, area: Rect) {
-    // TODO: Get version from Cargo.toml or version file
-    let title = format!("SSHr v{}", "0.2.0");
+    let title = format!("SSHr - SSH Manager: Easy control your SSH hosts");
     let block = Block::default()
         .borders(Borders::ALL)
         .title_style(Style::default().add_modifier(Modifier::BOLD))
@@ -94,6 +138,29 @@ fn draw_hosts_list<B: Backend>(f: &mut Frame, app: &App, area: Rect) {
         .highlight_style(Style::default().add_modifier(Modifier::BOLD));
 
     f.render_widget(list, area);
+}
+
+fn draw_status_bar<B: Backend>(f: &mut Frame,app: &mut App, area: Rect) {
+    if let Some((message, timestamp)) = &app.status_message {
+        // Clear messages older than 5 seconds
+        if timestamp.elapsed().as_secs() < 5 {
+            let style = if message.to_lowercase().contains("error") {
+                Style::default().fg(Color::Red)
+            } else if message.to_lowercase().contains("success") {
+                Style::default().fg(Color::Green)
+            } else {
+                Style::default().fg(Color::Yellow)
+            };
+            
+            let paragraph = Paragraph::new(message.as_str())
+                .style(style)
+                .alignment(ratatui::layout::Alignment::Center);
+            f.render_widget(paragraph, area);
+        } else {
+            // Clear the status message if it's expired
+            app.clear_status_message();
+        }
+    }
 }
 
 fn draw_footer<B: Backend>(f: &mut Frame, _app: &App, area: Rect) {

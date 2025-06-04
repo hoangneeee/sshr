@@ -88,6 +88,7 @@ impl Default for HostsConfig {
 
 #[derive(Debug)]
 pub struct ConfigManager {
+    #[allow(dead_code)]
     config_dir: PathBuf,
     config_file: PathBuf,
     hosts_file: PathBuf,
@@ -193,24 +194,24 @@ impl ConfigManager {
         Ok(hosts)
     }
 
-    pub fn save_hosts(&self, groups: &[HostGroup]) -> Result<()> {
-        // Create hosts file if it doesn't exist
-        if !self.hosts_file.exists() {
-            fs::write(&self.hosts_file, "").context("Failed to create hosts file")?;
-        }
+    // pub fn save_hosts(&self, groups: &[HostGroup]) -> Result<()> {
+    //     // Create hosts file if it doesn't exist
+    //     if !self.hosts_file.exists() {
+    //         fs::write(&self.hosts_file, "").context("Failed to create hosts file")?;
+    //     }
 
-        let config = HostsConfig {
-            groups: groups.to_vec(),
-        };
+    //     let config = HostsConfig {
+    //         groups: groups.to_vec(),
+    //     };
         
-        let toml = toml::to_string_pretty(&config)
-            .context("Failed to serialize hosts")?;
+    //     let toml = toml::to_string_pretty(&config)
+    //         .context("Failed to serialize hosts")?;
             
-        fs::write(&self.hosts_file, toml)
-            .context("Failed to write hosts file")?;
+    //     fs::write(&self.hosts_file, toml)
+    //         .context("Failed to write hosts file")?;
             
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     pub fn get_hosts_path(&self) -> &Path {
         &self.hosts_file

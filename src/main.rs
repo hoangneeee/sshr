@@ -19,10 +19,12 @@ mod config;
 mod models;
 mod ssh_service;
 mod ui;
+mod cmd;
 
 use app::{App};
 
 /// A TUI for managing and connecting to SSH hosts
+/// Git: https://github.com/hoangneeee/sshr
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {

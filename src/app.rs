@@ -11,6 +11,7 @@ use open;
 use ratatui::{backend::Backend, Terminal};
 use std::collections::HashSet;
 use std::fs;
+use std::io::Write;
 use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 
@@ -26,8 +27,11 @@ pub struct App {
     pub selected: usize,
     pub ssh_config_path: PathBuf,
     pub config_manager: ConfigManager,
+    #[allow(dead_code)]
     pub app_config: AppConfig,
     pub input_mode: InputMode,
+    pub is_connecting: bool,
+    pub status_message: Option<(String, std::time::Instant)>,
 }
 
 impl Default for App {
@@ -53,6 +57,8 @@ impl Default for App {
             config_manager,
             app_config,
             input_mode: InputMode::Normal,
+            is_connecting: false,
+            status_message: None,
         }
     }
 }
@@ -192,6 +198,10 @@ impl App {
         }
     }
 
+    pub fn clear_status_message(&mut self) {
+        self.status_message = None;
+    }
+
     // Improve navigation
     pub fn select_next(&mut self) {
         if self.hosts.is_empty() {
@@ -221,6 +231,13 @@ impl App {
             // Clone to avoid borrow issue
             tracing::info!("Enter pressed, selected host: {:?}", selected_host.alias);
 
+            // Set connecting state and redraw UI
+            self.is_connecting = true;
+            terminal.draw(|f| ui::draw::<B>(f, self))?;
+
+            // Flush stdout to ensure UI is updated
+            std::io::stdout().flush().context("Failed to flush stdout")?;
+
             // 1. Stop TUI, restore terminal to normal state
             disable_raw_mode().context("Failed to disable raw mode for SSH")?;
             let mut stdout = std::io::stdout();
@@ -238,17 +255,21 @@ impl App {
             // (Optional, ssh usually manages the screen itself)
             // print!("\x1B[2J\x1B[1;1H");
             // io::stdout().flush().unwrap();
+            // 2. Drop the terminal to prevent any TUI-related issues
+            // drop(terminal);
 
             // 2. Execute SSH command
             match ssh_service::connect_to_host(&selected_host) {
                 Ok(_) => {
                     tracing::info!("SSH session for {} ended.", selected_host.alias);
+                    self.is_connecting = false;
                 }
                 Err(e) => {
                     // This error will be logged, ssh usually displays its own error
                     tracing::error!("SSH connection to {} failed: {:?}", selected_host.alias, e);
                     // You can display a short error message on the TUI after returning
                     // app.status_message = Some(format!("SSH failed: {}", e));
+                    self.is_connecting = false;
                 }
             }
 
@@ -257,6 +278,7 @@ impl App {
             terminal
                 .clear()
                 .context("Failed to clear terminal post-SSH")?; // Remove ssh traces
+            
             enable_raw_mode().context("Failed to re-enable raw mode post-SSH")?;
             let mut stdout = std::io::stdout();
             crossterm::execute!(
@@ -300,7 +322,7 @@ impl App {
         }
 
         // Reload the config after the editor is closed
-        self.load_custom_hosts()?;
+        self.load_all_hosts()?;
 
         Ok(())
     }
