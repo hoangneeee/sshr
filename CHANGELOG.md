@@ -13,7 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
--
+- Use edit action instead of add, delete action
+- Move logic handle pressed key to `app.rs`
 
 ### Fixed
 

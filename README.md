@@ -1,19 +1,33 @@
 # 💻 SSHR
 
-- SSHR is a TUI (Text User Interface) application for managing and connecting to hosts through the terminal interface.
-- Current support only MacOs and Linux (x86_64)
+SSHR is a TUI (Text User Interface) application for managing and connecting to hosts through the terminal interface.
 
 [![Release](https://github.com/hoangneeee/sshr/actions/workflows/release.yml/badge.svg)](https://github.com/hoangneeee/sshr/actions/workflows/release.yml)
 
-## 🖥️ UI
+🎯 Supports: macOS & Linux (x86_64)
+
+---
+
+## 📚 Contents
+
+- [UI Preview](#ui-preview)
+- [Quick Start](#quick-start)
+- [Installation](#installation)
+- [Available Flags](#available-flags)
+- [Contribute](#contribute)
+- [License](#license)
+
+---
+
+## 🖥️ UI Preview
 
 ![image](./docs/preview_1.png)
 
-## 🚀 Get started
+## 🚀 Quick Start
 
-- `sshr` will load host from ~/.ssh/config
+- `sshr` automatically load hosts from your ~/.ssh/config
 
-## 📦 Install
+## 📦 Installation
 
 ### 🍺 Install using Homebrew (recommended)
 
@@ -25,9 +39,9 @@ brew install sshr
 ### ⬇️ Install from release
 
 ```bash
-curl -L -O https://github.com/hoangneeee/sshr/releases/download/v0.1.0/sshr-x86_64-apple-darwin.tar.gz
+curl -L -O https://github.com/hoangneeee/sshr/releases/download/v0.2.0/sshr-x86_64-apple-darwin.tar.gz
 # or
-wget https://github.com/hoangneeee/sshr/releases/download/v0.1.0/sshr-x86_64-apple-darwin.tar.gz
+wget https://github.com/hoangneeee/sshr/releases/download/v0.2.0/sshr-x86_64-apple-darwin.tar.gz
 
 # Unzip
 tar -xvf sshr-x86_64-apple-darwin.tar.gz

@@ -1,7 +1,14 @@
-use crate::config::{AppConfig, ConfigManager, HostGroup};
+use crate::config::{AppConfig, ConfigManager};
 use crate::models::SshHost;
+use crate::{ssh_service, ui};
 use anyhow::{Context, Result};
+use crossterm::{
+    event::{DisableMouseCapture, EnableMouseCapture},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
 use open;
+use ratatui::{backend::Backend, Terminal};
 use std::collections::HashSet;
 use std::fs;
 use std::net::ToSocketAddrs;
@@ -58,7 +65,8 @@ impl App {
     }
 
     pub fn load_all_hosts(&mut self) -> Result<()> {
-        self.load_ssh_config().context("Failed to load SSH config")?;
+        self.load_ssh_config()
+            .context("Failed to load SSH config")?;
         self.load_custom_hosts()
             .context("Failed to load custom hosts")?;
         self.handle_duplicate_hosts();
@@ -208,7 +216,62 @@ impl App {
     }
 
     // Handle key
-    pub fn handle_key_enter(&mut self) -> Result<()> {
+    pub fn handle_key_enter<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
+        if let Some(selected_host) = self.get_selected_host().cloned() {
+            // Clone to avoid borrow issue
+            tracing::info!("Enter pressed, selected host: {:?}", selected_host.alias);
+
+            // 1. Stop TUI, restore terminal to normal state
+            disable_raw_mode().context("Failed to disable raw mode for SSH")?;
+            let mut stdout = std::io::stdout();
+            execute!(
+                &mut stdout,
+                LeaveAlternateScreen,
+                DisableMouseCapture // Important: If you are using mouse capture
+            )
+            .context("Failed to leave alternate screen for SSH")?;
+            terminal
+                .show_cursor()
+                .context("Failed to show cursor for SSH")?;
+
+            // Clear screen before running ssh to clean up ssh output
+            // (Optional, ssh usually manages the screen itself)
+            // print!("\x1B[2J\x1B[1;1H");
+            // io::stdout().flush().unwrap();
+
+            // 2. Execute SSH command
+            match ssh_service::connect_to_host(&selected_host) {
+                Ok(_) => {
+                    tracing::info!("SSH session for {} ended.", selected_host.alias);
+                }
+                Err(e) => {
+                    // This error will be logged, ssh usually displays its own error
+                    tracing::error!("SSH connection to {} failed: {:?}", selected_host.alias, e);
+                    // You can display a short error message on the TUI after returning
+                    // app.status_message = Some(format!("SSH failed: {}", e));
+                }
+            }
+
+            // 3. Restore TUI
+            // Important: must clear terminal to redraw TUI after ssh ends
+            terminal
+                .clear()
+                .context("Failed to clear terminal post-SSH")?; // Remove ssh traces
+            enable_raw_mode().context("Failed to re-enable raw mode post-SSH")?;
+            let mut stdout = std::io::stdout();
+            crossterm::execute!(
+                &mut stdout,
+                EnterAlternateScreen,
+                EnableMouseCapture // If you are using mouse capture
+            )
+            .context("Failed to re-enter alternate screen post-SSH")?;
+            // No need to call terminal.show_cursor() here if TUI doesn't use cursor
+
+            // Request to redraw the entire UI
+            terminal.draw(|f| ui::draw::<B>(f, self))?;
+        } else {
+            tracing::warn!("Enter pressed but no host selected.");
+        }
         Ok(())
     }
 
@@ -217,7 +280,7 @@ impl App {
         Ok(())
     }
 
-    pub fn handle_key_a(&mut self) -> Result<()> {
+    pub fn handle_key_e(&mut self) -> Result<()> {
         // Get the path to the hosts file
         let hosts_path = self.config_manager.get_hosts_path();
 
@@ -239,11 +302,6 @@ impl App {
         // Reload the config after the editor is closed
         self.load_custom_hosts()?;
 
-        Ok(())
-    }
-
-    pub fn handle_key_d(&mut self) -> Result<()> {
-        let _ = self.handle_key_a();
         Ok(())
     }
 

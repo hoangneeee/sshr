@@ -20,3 +20,8 @@ uninstall:
 	@echo "Removing sshr"
 	@rm -f /usr/local/bin/sshr
 	@echo "sshr uninstalled"
+
+install-brew:
+	brew tap hoangneeee/sshr
+	brew install sshr
+

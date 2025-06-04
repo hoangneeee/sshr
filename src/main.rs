@@ -132,13 +132,8 @@ async fn run_app<B: ratatui::backend::Backend>(
                         KeyCode::Down | KeyCode::Char('j') => {
                             app.select_next();
                         }
-                        KeyCode::Char('a') => {
-                            if let Err(e) = app.handle_key_a() {
-                                tracing::error!("Failed to open editor: {}", e);
-                            }
-                        }
-                        KeyCode::Char('d') => {
-                            if let Err(e) = app.handle_key_d() {
+                        KeyCode::Char('e') => {
+                            if let Err(e) = app.handle_key_e() {
                                 tracing::error!("Failed to open editor: {}", e);
                             }
                         }
@@ -146,72 +141,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                             app.handle_key_esc()?;
                         }
                         KeyCode::Enter => {
-                            if let Some(selected_host) = app.get_selected_host().cloned() {
-                                // Clone to avoid borrow issue
-                                tracing::info!(
-                                    "Enter pressed, selected host: {:?}",
-                                    selected_host.alias
-                                );
-
-                                // 1. Stop TUI, restore terminal to normal state
-                                disable_raw_mode().context("Failed to disable raw mode for SSH")?;
-                                let mut stdout = io::stdout();
-                                execute!(
-                                    &mut stdout,
-                                    LeaveAlternateScreen,
-                                    DisableMouseCapture // Important: If you are using mouse capture
-                                )
-                                .context("Failed to leave alternate screen for SSH")?;
-                                terminal
-                                    .show_cursor()
-                                    .context("Failed to show cursor for SSH")?;
-
-                                // Clear screen before running ssh to clean up ssh output
-                                // (Optional, ssh usually manages the screen itself)
-                                // print!("\x1B[2J\x1B[1;1H");
-                                // io::stdout().flush().unwrap();
-
-                                // 2. Execute SSH command
-                                match ssh_service::connect_to_host(&selected_host) {
-                                    Ok(_) => {
-                                        tracing::info!(
-                                            "SSH session for {} ended.",
-                                            selected_host.alias
-                                        );
-                                    }
-                                    Err(e) => {
-                                        // This error will be logged, ssh usually displays its own error
-                                        tracing::error!(
-                                            "SSH connection to {} failed: {:?}",
-                                            selected_host.alias,
-                                            e
-                                        );
-                                        // You can display a short error message on the TUI after returning
-                                        // app.status_message = Some(format!("SSH failed: {}", e));
-                                    }
-                                }
-
-                                // 3. Restore TUI
-                                // Important: must clear terminal to redraw TUI after ssh ends
-                                terminal
-                                    .clear()
-                                    .context("Failed to clear terminal post-SSH")?; // Remove ssh traces
-                                enable_raw_mode()
-                                    .context("Failed to re-enable raw mode post-SSH")?;
-                                let mut stdout = io::stdout();
-                                execute!(
-                                    &mut stdout,
-                                    EnterAlternateScreen,
-                                    EnableMouseCapture // If you are using mouse capture
-                                )
-                                .context("Failed to re-enter alternate screen post-SSH")?;
-                                // No need to call terminal.show_cursor() here if TUI doesn't use cursor
-
-                                // Request to redraw the entire UI
-                                terminal.draw(|f| ui::draw::<B>(f, &mut app))?;
-                            } else {
-                                tracing::warn!("Enter pressed but no host selected.");
-                            }
+                            app.handle_key_enter(terminal)?;
                         }
                         KeyCode::Char('r') => {
                             // Reload config
