@@ -39,9 +39,9 @@ brew install sshr
 ### ⬇️ Install from release
 
 ```bash
-curl -L -O https://github.com/hoangneeee/sshr/releases/download/v0.2.0/sshr-x86_64-apple-darwin.tar.gz
+curl -L -O https://github.com/hoangneeee/sshr/releases/download/latest/sshr-x86_64-apple-darwin.tar.gz
 # or
-wget https://github.com/hoangneeee/sshr/releases/download/v0.2.0/sshr-x86_64-apple-darwin.tar.gz
+wget https://github.com/hoangneeee/sshr/releases/download/latest/sshr-x86_64-apple-darwin.tar.gz
 
 # Unzip
 tar -xvf sshr-x86_64-apple-darwin.tar.gz
