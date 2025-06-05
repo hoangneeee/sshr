@@ -1,3 +1,5 @@
+use std::time::SystemTime;
+
 use crate::app::App;
 use ratatui::{
     backend::Backend,
@@ -25,9 +27,9 @@ pub fn draw<B: Backend>(f: &mut Frame, app: &mut App) {
     draw_status_bar::<B>(f, app, chunks[1]);
     draw_footer::<B>(f, app, chunks[2]);
 
-    // Draw enhanced loading overlay if connecting
+    // Draw loading overlay if connecting
     if app.is_connecting {
-        draw_loading_overlay::<B>(f, app);
+        draw_enhanced_loading_overlay::<B>(f, app);
     }
 }
 
@@ -140,12 +142,27 @@ fn draw_hosts_list<B: Backend>(f: &mut Frame, app: &App, area: Rect) {
 
 fn draw_status_bar<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
     if let Some((message, timestamp)) = &app.status_message {
-        // Clear messages older than 5 seconds
-        if timestamp.elapsed().as_secs() < 5 {
-            let style = if message.to_lowercase().contains("error") {
+        // Clear messages older than 5 seconds (except when connecting)
+        let should_show = if app.is_connecting {
+            true // Always show status during connection
+        } else {
+            timestamp.elapsed().as_secs() < 5
+        };
+
+        if should_show {
+            let style = if message.to_lowercase().contains("error")
+                || message.to_lowercase().contains("failed")
+            {
                 Style::default().fg(Color::Red)
-            } else if message.to_lowercase().contains("success") {
+            } else if message.to_lowercase().contains("success")
+                || message.to_lowercase().contains("successful")
+                || message.to_lowercase().contains("ended")
+            {
                 Style::default().fg(Color::Green)
+            } else if message.to_lowercase().contains("connecting")
+                || message.to_lowercase().contains("testing")
+            {
+                Style::default().fg(Color::Cyan)
             } else {
                 Style::default().fg(Color::Yellow)
             };
@@ -161,38 +178,123 @@ fn draw_status_bar<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
     }
 }
 
-fn draw_footer<B: Backend>(f: &mut Frame, _app: &App, area: Rect) {
+fn draw_footer<B: Backend>(f: &mut Frame, app: &App, area: Rect) {
     let footer = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(area);
 
-    // Left side: Navigation help
-    let nav_help = Paragraph::new("↑/k: Up  ↓/j: Down  [Enter] Connect")
-        .style(Style::default().fg(Color::Gray));
+    let (nav_text, action_text) = if app.is_connecting {
+        ("Connecting to SSH host...", "[Ctrl+C] Cancel")
+    } else {
+        (
+            "↑/k: Up  ↓/j: Down  [Enter] Connect",
+            "[e] Edit [r] Reload [q] Quit",
+        )
+    };
 
-    // Right side: Action help
-    let action_help = Paragraph::new("[e] Edit [r] Reload [q] Quit")
-        .style(Style::default().fg(Color::Gray))
+    let nav_help = Paragraph::new(nav_text).style(Style::default().fg(if app.is_connecting {
+        Color::Yellow
+    } else {
+        Color::Gray
+    }));
+
+    let action_help = Paragraph::new(action_text)
+        .style(Style::default().fg(if app.is_connecting {
+            Color::Red
+        } else {
+            Color::Gray
+        }))
         .alignment(ratatui::layout::Alignment::Right);
 
     f.render_widget(nav_help, footer[0]);
     f.render_widget(action_help, footer[1]);
 }
 
-fn draw_loading_overlay<B: Backend>(f: &mut Frame, app: &App) {
-    let area = centered_rect(50, 8, f.size());
+fn draw_enhanced_loading_overlay<B: Backend>(f: &mut Frame, app: &App) {
+    let area = centered_rect(60, 10, f.size());
+
+    // Get current time for animation
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+
+    // Create animated dots
+    let dots_count = (now / 500) % 4;
+    let dots = ".".repeat(dots_count as usize);
+    let padding = " ".repeat(3 - dots_count as usize);
+
+    // Get status message or default
+    let status_text = if let Some((msg, _)) = &app.status_message {
+        msg.clone()
+    } else {
+        "Connecting".to_string()
+    };
 
     // Create loading content with animation
-    let loading_text = if let Some(host) = app.get_selected_host() {
-        format!("🔗 Connecting to {}...\n\n⏳ Please wait...", host.alias)
+    let loading_content = if let Some(host) = app.get_selected_host() {
+        vec![
+            Line::from(vec![
+                Span::styled("🔗 ", Style::default().fg(Color::Yellow)),
+                Span::styled(
+                    format!("SSH Connection to {}", host.alias),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("📡 ", Style::default().fg(Color::Blue)),
+                Span::styled(
+                    format!("{}{}", status_text, dots),
+                    Style::default().fg(Color::Cyan),
+                ),
+                Span::raw(padding),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("Host: ", Style::default().fg(Color::Gray)),
+                Span::styled(
+                    format!("{}@{}:{}", host.user, host.host, host.port.unwrap_or(22)),
+                    Style::default().fg(Color::Green),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("💡 ", Style::default().fg(Color::Yellow)),
+                Span::styled(
+                    "Press Ctrl+C to cancel",
+                    Style::default().fg(Color::Gray).add_modifier(Modifier::DIM),
+                ),
+            ]),
+        ]
     } else {
-        "🔗 Connecting...\n\n⏳ Please wait...".to_string()
+        vec![
+            Line::from(vec![
+                Span::styled("🔗 ", Style::default().fg(Color::Yellow)),
+                Span::styled(
+                    "SSH Connection",
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled(
+                    format!("{}{}", status_text, dots),
+                    Style::default().fg(Color::Cyan),
+                ),
+                Span::raw(padding),
+            ]),
+        ]
     };
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .title("SSH Connection")
+        .title(" SSH Manager ")
         .title_style(
             Style::default()
                 .fg(Color::Yellow)
@@ -200,10 +302,9 @@ fn draw_loading_overlay<B: Backend>(f: &mut Frame, app: &App) {
         )
         .border_style(Style::default().fg(Color::Yellow));
 
-    let paragraph = Paragraph::new(loading_text)
+    let paragraph = Paragraph::new(loading_content)
         .block(block)
-        .alignment(ratatui::layout::Alignment::Center)
-        .style(Style::default().fg(Color::White));
+        .alignment(ratatui::layout::Alignment::Center);
 
     // Clear the area và render loading overlay
     f.render_widget(Clear, area);

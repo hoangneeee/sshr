@@ -7,15 +7,23 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use std::time::Duration;
-use tokio::process::Command as TokioCommand;
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::time::{Duration, Instant};
 
 use open;
 use ratatui::{backend::Backend, Terminal};
 use std::collections::HashSet;
-use std::fs;
 use std::net::ToSocketAddrs;
 use std::path::PathBuf;
+use std::{fs, thread};
+
+#[derive(Debug, Clone)]
+pub enum SshEvent {
+    Connecting,
+    Connected,
+    Error(String),
+    Disconnected,
+}
 
 #[derive(Debug)]
 pub enum InputMode {
@@ -34,11 +42,12 @@ pub struct App {
     pub input_mode: InputMode,
     pub is_connecting: bool,
     pub status_message: Option<(String, std::time::Instant)>,
+    pub ssh_receiver: Option<Receiver<SshEvent>>,
+    pub ssh_ready_for_terminal: bool,
 }
 
 impl Default for App {
     fn default() -> Self {
-        // Initialize config manager
         let config_manager = ConfigManager::new().unwrap_or_else(|e| {
             eprintln!("Failed to initialize config manager: {}", e);
             std::process::exit(1);
@@ -61,6 +70,8 @@ impl Default for App {
             input_mode: InputMode::Normal,
             is_connecting: false,
             status_message: None,
+            ssh_receiver: None,
+            ssh_ready_for_terminal: false,
         }
     }
 }
@@ -228,36 +239,30 @@ impl App {
     }
 
     // Handle key
-    pub async fn handle_key_enter_async<B: Backend>(
-        &mut self,
-        terminal: &mut Terminal<B>,
-    ) -> Result<()> {
+    pub fn handle_key_enter<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
         if let Some(selected_host) = self.get_selected_host().cloned() {
             tracing::info!("Enter pressed, selected host: {:?}", selected_host.alias);
 
-            // Show loading UI with animation
+            // Tạo channel để communication
+            let (sender, receiver) = mpsc::channel::<SshEvent>();
+            self.ssh_receiver = Some(receiver);
+
+            // Set connecting state
             self.is_connecting = true;
+            self.ssh_ready_for_terminal = false;
             self.status_message = Some((
                 format!("Connecting to {}...", selected_host.alias),
-                std::time::Instant::now(),
+                Instant::now(),
             ));
 
-            // Draw loading UI multiple times với animation effect
-            for i in 0..10 {
-                terminal.draw(|f| ui::draw::<B>(f, self))?;
-                tokio::time::sleep(Duration::from_millis(100)).await;
+            // Spawn SSH thread
+            let host_clone = selected_host.clone();
+            thread::spawn(move || {
+                Self::ssh_thread_worker(sender, host_clone);
+            });
 
-                // Update connecting message với animation
-                let dots = ".".repeat((i % 4) + 1);
-                self.status_message = Some((
-                    format!("Connecting to {}{}", selected_host.alias, dots),
-                    std::time::Instant::now(),
-                ));
-            }
-
-            // Sau khi hiển thị loading, chuyển sang SSH mode
-            self.transition_to_ssh_mode(terminal, &selected_host)
-                .await?;
+            // Redraw UI để hiển thị loading
+            terminal.draw(|f| ui::draw::<B>(f, self))?;
         }
         Ok(())
     }
@@ -297,12 +302,8 @@ impl App {
         Ok(())
     }
 
-    async fn transition_to_ssh_mode<B: Backend>(
-        &mut self,
-        terminal: &mut Terminal<B>,
-        host: &SshHost,
-    ) -> Result<()> {
-        // 1. Disable TUI
+    fn transition_to_ssh_mode<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
+        // Disable TUI mode
         disable_raw_mode().context("Failed to disable raw mode for SSH")?;
         let mut stdout = std::io::stdout();
         execute!(&mut stdout, LeaveAlternateScreen, DisableMouseCapture)
@@ -311,70 +312,12 @@ impl App {
             .show_cursor()
             .context("Failed to show cursor for SSH")?;
 
-        // 2. Execute SSH
-        let ssh_result = self.execute_ssh_async(host).await;
-
-        // 3. Restore TUI
-        self.restore_tui_mode(terminal).await?;
-
-        // 4. Handle result
-        self.handle_ssh_result(ssh_result, host);
-
+        tracing::info!("TUI disabled, SSH will take over terminal");
         Ok(())
     }
 
-    async fn execute_ssh_async(&self, host: &SshHost) -> Result<()> {
-        let port_str = host.port.unwrap_or(22).to_string();
-        let connection_str = format!("{}@{}", host.user, host.host);
-
-        tracing::info!(
-            "Attempting to connect: ssh {} -p {}",
-            connection_str,
-            port_str
-        );
-
-        let mut cmd = TokioCommand::new("ssh");
-        cmd.arg(&connection_str)
-            .arg("-p")
-            .arg(&port_str)
-            .arg("-o")
-            .arg("ConnectTimeout=30")
-            .stdin(std::process::Stdio::inherit())
-            .stdout(std::process::Stdio::inherit())
-            .stderr(std::process::Stdio::inherit());
-
-        let status = cmd
-            .status()
-            .await
-            .with_context(|| format!("Failed to execute SSH command for {}", host.alias))?;
-
-        if !status.success() {
-            tracing::error!("SSH command finished with status: {}", status);
-        }
-
-        Ok(())
-    }
-
-    fn handle_ssh_result(&mut self, result: Result<()>, host: &SshHost) {
-        match result {
-            Ok(_) => {
-                tracing::info!("SSH session for {} ended.", host.alias);
-                self.status_message = Some((
-                    format!("SSH session to {} completed successfully", host.alias),
-                    std::time::Instant::now(),
-                ));
-            }
-            Err(e) => {
-                tracing::error!("SSH connection to {} failed: {:?}", host.alias, e);
-                self.status_message = Some((
-                    format!("SSH connection failed: {}", e),
-                    std::time::Instant::now(),
-                ));
-            }
-        }
-    }
-
-    async fn restore_tui_mode<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
+    fn restore_tui_mode<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
+        // Re-enable TUI mode
         enable_raw_mode().context("Failed to re-enable raw mode post-SSH")?;
         let mut stdout = std::io::stdout();
         execute!(&mut stdout, EnterAlternateScreen, EnableMouseCapture)
@@ -383,9 +326,144 @@ impl App {
         terminal
             .clear()
             .context("Failed to clear terminal post-SSH")?;
-        self.is_connecting = false;
-        terminal.draw(|f| ui::draw::<B>(f, self))?;
-
+        tracing::info!("TUI restored after SSH session");
         Ok(())
+    }
+
+    // Worker function run in SSH thread
+    fn ssh_thread_worker(sender: Sender<SshEvent>, host: SshHost) {
+        // Send event connecting
+        if sender.send(SshEvent::Connecting).is_err() {
+            return;
+        }
+
+        // Perform SSH connection test first
+        match Self::test_ssh_connection(&host) {
+            Ok(_) => {
+                // If connection test success, send Connected event
+                if sender.send(SshEvent::Connected).is_ok() {
+                    // Wait a little bit for main thread to process
+                    thread::sleep(Duration::from_millis(100));
+
+                    // Thực hiện SSH connection thật
+                    match Self::execute_ssh_blocking(&host) {
+                        Ok(_) => {
+                            // SSH session kết thúc
+                            let _ = sender.send(SshEvent::Disconnected);
+                        }
+                        Err(e) => {
+                            let _ = sender.send(SshEvent::Error(e.to_string()));
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                let _ = sender.send(SshEvent::Error(e.to_string()));
+            }
+        }
+    }
+
+    // Test SSH connection trước khi thực sự connect
+    fn test_ssh_connection(host: &SshHost) -> Result<()> {
+        use std::process::Command;
+
+        let port_str = host.port.unwrap_or(22).to_string();
+
+        // Test connection with short timeout
+        let output = Command::new("ssh")
+            .arg(format!("{}@{}", host.user, host.host))
+            .arg("-p")
+            .arg(&port_str)
+            .arg("-o")
+            .arg("ConnectTimeout=5")
+            .arg("-o")
+            .arg("BatchMode=yes")
+            .arg("-o")
+            .arg("StrictHostKeyChecking=no")
+            .arg("exit")
+            .output()
+            .context("Failed to test SSH connection")?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("SSH connection test failed"))
+        }
+    }
+
+    // Execute SSH connection (blocking)
+    fn execute_ssh_blocking(host: &SshHost) -> Result<()> {
+        use std::process::Command;
+
+        let port_str = host.port.unwrap_or(22).to_string();
+        let connection_str = format!("{}@{}", host.user, host.host);
+
+        tracing::info!("Executing SSH: ssh {} -p {}", connection_str, port_str);
+
+        let status = Command::new("ssh")
+            .arg(&connection_str)
+            .arg("-p")
+            .arg(&port_str)
+            .arg("-o")
+            .arg("ConnectTimeout=60")
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .status()
+            .context("Failed to execute SSH command")?;
+
+        if status.success() {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "SSH command failed with status: {}",
+                status
+            ))
+        }
+    }
+
+    // Process SSH events from channel
+    pub fn process_ssh_events<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<bool> {
+        if let Some(receiver) = &self.ssh_receiver {
+            // Non-blocking receive
+            if let Ok(event) = receiver.try_recv() {
+                match event {
+                    SshEvent::Connecting => {
+                        self.status_message =
+                            Some(("Testing connection...".to_string(), Instant::now()));
+                        return Ok(false);
+                    }
+                    SshEvent::Connected => {
+                        self.status_message = Some((
+                            "Connection successful! Launching SSH...".to_string(),
+                            Instant::now(),
+                        ));
+                        self.ssh_ready_for_terminal = true;
+
+                        // Transition to SSH terminal mode
+                        self.transition_to_ssh_mode(terminal)?;
+                        return Ok(false);
+                    }
+                    SshEvent::Error(err) => {
+                        self.is_connecting = false;
+                        self.ssh_ready_for_terminal = false;
+                        self.ssh_receiver = None;
+                        self.status_message = Some((format!("SSH Error: {}", err), Instant::now()));
+                        return Ok(false);
+                    }
+                    SshEvent::Disconnected => {
+                        // SSH session ended, restore TUI
+                        self.restore_tui_mode(terminal)?;
+                        self.is_connecting = false;
+                        self.ssh_ready_for_terminal = false;
+                        self.ssh_receiver = None;
+                        self.status_message =
+                            Some(("SSH session ended".to_string(), Instant::now()));
+                        return Ok(true); // Indicate we need to redraw
+                    }
+                }
+            }
+        }
+        Ok(false)
     }
 }

@@ -15,13 +15,13 @@ use std::{io, time::Duration};
 use tracing_subscriber::{fmt, EnvFilter};
 
 mod app;
+mod cmd;
 mod config;
 mod models;
 mod ssh_service;
 mod ui;
-mod cmd;
 
-use app::{App};
+use app::App;
 
 /// A TUI for managing and connecting to SSH hosts
 /// Git: https://github.com/hoangneeee/sshr
@@ -115,11 +115,31 @@ async fn run_app<B: ratatui::backend::Backend>(
     mut app: App,
 ) -> Result<()> {
     loop {
-        terminal.draw(|f| ui::draw::<B>(f, &mut app))?;
+        // Process SSH events first
+        let needs_redraw = app.process_ssh_events::<B>(terminal)?;
 
+        // Draw UI (unless we're in SSH mode)
+        if !app.ssh_ready_for_terminal {
+            terminal.draw(|f| ui::draw::<B>(f, &mut app))?;
+        } else {
+            // If we're in SSH mode, only check events and don't draw UI
+            if let Ok(true) = event::poll(Duration::from_millis(50)) {
+                if let Ok(CrosstermEvent::Key(_)) = event::read() {
+                    // Ignore keys while in SSH mode
+                    continue;
+                }
+            }
+            continue;
+        }
+
+        // Handle terminal events
         if event::poll(Duration::from_millis(100)).context("Event poll failed")? {
             if let CrosstermEvent::Key(key_event) = event::read().context("Event read failed")? {
-                if key_event.kind == event::KeyEventKind::Press {
+                // Only handle keys if not connecting or in SSH mode
+                if key_event.kind == event::KeyEventKind::Press
+                    && !app.is_connecting
+                    && !app.ssh_ready_for_terminal
+                {
                     match key_event.code {
                         KeyCode::Char('q') | KeyCode::Char('Q') => {
                             app.handle_key_q()?;
@@ -136,14 +156,17 @@ async fn run_app<B: ratatui::backend::Backend>(
                         KeyCode::Char('e') => {
                             if let Err(e) = app.handle_key_e() {
                                 tracing::error!("Failed to open editor: {}", e);
+                                app.status_message = Some((
+                                    format!("Failed to open editor: {}", e),
+                                    std::time::Instant::now(),
+                                ));
                             }
                         }
                         KeyCode::Esc => {
                             app.handle_key_esc()?;
                         }
                         KeyCode::Enter => {
-                            // Sử dụng async version
-                            app.handle_key_enter_async(terminal).await?;
+                            app.handle_key_enter(terminal)?;
                         }
                         KeyCode::Char('r') => {
                             tracing::info!("Reloading SSH config...");
@@ -151,23 +174,28 @@ async fn run_app<B: ratatui::backend::Backend>(
                                 tracing::error!("Failed to reload SSH config: {}", e);
                                 app.status_message = Some((
                                     format!("Reload failed: {}", e),
-                                    std::time::Instant::now()
+                                    std::time::Instant::now(),
                                 ));
                             } else {
                                 app.status_message = Some((
                                     "Config reloaded successfully".to_string(),
-                                    std::time::Instant::now()
+                                    std::time::Instant::now(),
                                 ));
                             }
                         }
                         _ => {}
                     }
                 }
-
-                if app.should_quit {
-                    return Ok(());
-                }
             }
+        }
+
+        if app.should_quit {
+            return Ok(());
+        }
+
+        // Force redraw if needed
+        if needs_redraw {
+            terminal.draw(|f| ui::draw::<B>(f, &mut app))?;
         }
     }
 }
