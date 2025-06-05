@@ -22,10 +22,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 -
 
 ### Removed
-
 -
 
-### Security
+---
+
+## [0.3.0] - 2025-06-05
+### Changed
+
+- Use edit action instead of add, delete action
+- Move logic handle pressed key to `app.rs`
+- Upgrade UI with loading animation
+
+### Performance
+
+- Use main thread and run ssh thread
+
+---
 
 ## [0.2.0] - 2025-06-03
 ### Added
@@ -44,6 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Workflows release work on windows
+
+---
 
 ## [0.1.0] - 2025-06-02
 
