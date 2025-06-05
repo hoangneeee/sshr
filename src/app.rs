@@ -1,17 +1,19 @@
 use crate::config::{AppConfig, ConfigManager};
 use crate::models::SshHost;
-use crate::{ssh_service, ui};
+use crate::ui;
 use anyhow::{Context, Result};
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use std::time::Duration;
+use tokio::process::Command as TokioCommand;
+
 use open;
 use ratatui::{backend::Backend, Terminal};
 use std::collections::HashSet;
 use std::fs;
-use std::io::Write;
 use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 
@@ -226,73 +228,36 @@ impl App {
     }
 
     // Handle key
-    pub fn handle_key_enter<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
+    pub async fn handle_key_enter_async<B: Backend>(
+        &mut self,
+        terminal: &mut Terminal<B>,
+    ) -> Result<()> {
         if let Some(selected_host) = self.get_selected_host().cloned() {
-            // Clone to avoid borrow issue
             tracing::info!("Enter pressed, selected host: {:?}", selected_host.alias);
 
-            // Set connecting state and redraw UI
+            // Show loading UI with animation
             self.is_connecting = true;
-            terminal.draw(|f| ui::draw::<B>(f, self))?;
+            self.status_message = Some((
+                format!("Connecting to {}...", selected_host.alias),
+                std::time::Instant::now(),
+            ));
 
-            // Flush stdout to ensure UI is updated
-            std::io::stdout().flush().context("Failed to flush stdout")?;
+            // Draw loading UI multiple times với animation effect
+            for i in 0..10 {
+                terminal.draw(|f| ui::draw::<B>(f, self))?;
+                tokio::time::sleep(Duration::from_millis(100)).await;
 
-            // 1. Stop TUI, restore terminal to normal state
-            disable_raw_mode().context("Failed to disable raw mode for SSH")?;
-            let mut stdout = std::io::stdout();
-            execute!(
-                &mut stdout,
-                LeaveAlternateScreen,
-                DisableMouseCapture // Important: If you are using mouse capture
-            )
-            .context("Failed to leave alternate screen for SSH")?;
-            terminal
-                .show_cursor()
-                .context("Failed to show cursor for SSH")?;
-
-            // Clear screen before running ssh to clean up ssh output
-            // (Optional, ssh usually manages the screen itself)
-            // print!("\x1B[2J\x1B[1;1H");
-            // io::stdout().flush().unwrap();
-            // 2. Drop the terminal to prevent any TUI-related issues
-            // drop(terminal);
-
-            // 2. Execute SSH command
-            match ssh_service::connect_to_host(&selected_host) {
-                Ok(_) => {
-                    tracing::info!("SSH session for {} ended.", selected_host.alias);
-                    self.is_connecting = false;
-                }
-                Err(e) => {
-                    // This error will be logged, ssh usually displays its own error
-                    tracing::error!("SSH connection to {} failed: {:?}", selected_host.alias, e);
-                    // You can display a short error message on the TUI after returning
-                    // app.status_message = Some(format!("SSH failed: {}", e));
-                    self.is_connecting = false;
-                }
+                // Update connecting message với animation
+                let dots = ".".repeat((i % 4) + 1);
+                self.status_message = Some((
+                    format!("Connecting to {}{}", selected_host.alias, dots),
+                    std::time::Instant::now(),
+                ));
             }
 
-            // 3. Restore TUI
-            // Important: must clear terminal to redraw TUI after ssh ends
-            terminal
-                .clear()
-                .context("Failed to clear terminal post-SSH")?; // Remove ssh traces
-            
-            enable_raw_mode().context("Failed to re-enable raw mode post-SSH")?;
-            let mut stdout = std::io::stdout();
-            crossterm::execute!(
-                &mut stdout,
-                EnterAlternateScreen,
-                EnableMouseCapture // If you are using mouse capture
-            )
-            .context("Failed to re-enter alternate screen post-SSH")?;
-            // No need to call terminal.show_cursor() here if TUI doesn't use cursor
-
-            // Request to redraw the entire UI
-            terminal.draw(|f| ui::draw::<B>(f, self))?;
-        } else {
-            tracing::warn!("Enter pressed but no host selected.");
+            // Sau khi hiển thị loading, chuyển sang SSH mode
+            self.transition_to_ssh_mode(terminal, &selected_host)
+                .await?;
         }
         Ok(())
     }
@@ -329,6 +294,98 @@ impl App {
 
     pub fn handle_key_esc(&mut self) -> Result<()> {
         self.input_mode = InputMode::Normal;
+        Ok(())
+    }
+
+    async fn transition_to_ssh_mode<B: Backend>(
+        &mut self,
+        terminal: &mut Terminal<B>,
+        host: &SshHost,
+    ) -> Result<()> {
+        // 1. Disable TUI
+        disable_raw_mode().context("Failed to disable raw mode for SSH")?;
+        let mut stdout = std::io::stdout();
+        execute!(&mut stdout, LeaveAlternateScreen, DisableMouseCapture)
+            .context("Failed to leave alternate screen for SSH")?;
+        terminal
+            .show_cursor()
+            .context("Failed to show cursor for SSH")?;
+
+        // 2. Execute SSH
+        let ssh_result = self.execute_ssh_async(host).await;
+
+        // 3. Restore TUI
+        self.restore_tui_mode(terminal).await?;
+
+        // 4. Handle result
+        self.handle_ssh_result(ssh_result, host);
+
+        Ok(())
+    }
+
+    async fn execute_ssh_async(&self, host: &SshHost) -> Result<()> {
+        let port_str = host.port.unwrap_or(22).to_string();
+        let connection_str = format!("{}@{}", host.user, host.host);
+
+        tracing::info!(
+            "Attempting to connect: ssh {} -p {}",
+            connection_str,
+            port_str
+        );
+
+        let mut cmd = TokioCommand::new("ssh");
+        cmd.arg(&connection_str)
+            .arg("-p")
+            .arg(&port_str)
+            .arg("-o")
+            .arg("ConnectTimeout=30")
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit());
+
+        let status = cmd
+            .status()
+            .await
+            .with_context(|| format!("Failed to execute SSH command for {}", host.alias))?;
+
+        if !status.success() {
+            tracing::error!("SSH command finished with status: {}", status);
+        }
+
+        Ok(())
+    }
+
+    fn handle_ssh_result(&mut self, result: Result<()>, host: &SshHost) {
+        match result {
+            Ok(_) => {
+                tracing::info!("SSH session for {} ended.", host.alias);
+                self.status_message = Some((
+                    format!("SSH session to {} completed successfully", host.alias),
+                    std::time::Instant::now(),
+                ));
+            }
+            Err(e) => {
+                tracing::error!("SSH connection to {} failed: {:?}", host.alias, e);
+                self.status_message = Some((
+                    format!("SSH connection failed: {}", e),
+                    std::time::Instant::now(),
+                ));
+            }
+        }
+    }
+
+    async fn restore_tui_mode<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
+        enable_raw_mode().context("Failed to re-enable raw mode post-SSH")?;
+        let mut stdout = std::io::stdout();
+        execute!(&mut stdout, EnterAlternateScreen, EnableMouseCapture)
+            .context("Failed to re-enter alternate screen post-SSH")?;
+
+        terminal
+            .clear()
+            .context("Failed to clear terminal post-SSH")?;
+        self.is_connecting = false;
+        terminal.draw(|f| ui::draw::<B>(f, self))?;
+
         Ok(())
     }
 }

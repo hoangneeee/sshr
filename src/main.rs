@@ -119,14 +119,13 @@ async fn run_app<B: ratatui::backend::Backend>(
 
         if event::poll(Duration::from_millis(100)).context("Event poll failed")? {
             if let CrosstermEvent::Key(key_event) = event::read().context("Event read failed")? {
-                // Only handle when key is pressed (not repeated when holding the key)
                 if key_event.kind == event::KeyEventKind::Press {
                     match key_event.code {
                         KeyCode::Char('q') | KeyCode::Char('Q') => {
                             app.handle_key_q()?;
                         }
                         KeyCode::Char('c') if key_event.modifiers == KeyModifiers::CONTROL => {
-                            app.should_quit = true; // Ctrl+C to quit
+                            app.should_quit = true;
                         }
                         KeyCode::Up | KeyCode::Char('k') => {
                             app.select_previous();
@@ -143,16 +142,22 @@ async fn run_app<B: ratatui::backend::Backend>(
                             app.handle_key_esc()?;
                         }
                         KeyCode::Enter => {
-                            app.handle_key_enter(terminal)?;
+                            // Sử dụng async version
+                            app.handle_key_enter_async(terminal).await?;
                         }
                         KeyCode::Char('r') => {
-                            // Reload config
                             tracing::info!("Reloading SSH config...");
                             if let Err(e) = app.load_all_hosts() {
                                 tracing::error!("Failed to reload SSH config: {}", e);
-                                // app.status_message = Some(format!("Reload failed: {}", e));
+                                app.status_message = Some((
+                                    format!("Reload failed: {}", e),
+                                    std::time::Instant::now()
+                                ));
                             } else {
-                                // app.status_message = Some("Config reloaded.".to_string());
+                                app.status_message = Some((
+                                    "Config reloaded successfully".to_string(),
+                                    std::time::Instant::now()
+                                ));
                             }
                         }
                         _ => {}
