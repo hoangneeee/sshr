@@ -312,7 +312,7 @@ impl App {
             .show_cursor()
             .context("Failed to show cursor for SSH")?;
 
-        tracing::info!("TUI disabled, SSH will take over terminal");
+        tracing::info!("TUI disabled for SSH mode - main thread will suspend polling");
         Ok(())
     }
 
@@ -326,41 +326,53 @@ impl App {
         terminal
             .clear()
             .context("Failed to clear terminal post-SSH")?;
-        tracing::info!("TUI restored after SSH session");
+        tracing::info!("TUI restored after SSH session - resuming main thread polling");
         Ok(())
     }
 
     // Worker function run in SSH thread
     fn ssh_thread_worker(sender: Sender<SshEvent>, host: SshHost) {
+        tracing::info!("SSH thread started for host: {}", host.alias);
+        
         // Send event connecting
         if sender.send(SshEvent::Connecting).is_err() {
+            tracing::error!("Failed to send Connecting event");
             return;
         }
 
         // Perform SSH connection test first
         match Self::test_ssh_connection(&host) {
             Ok(_) => {
+                tracing::info!("SSH connection test successful for {}", host.alias);
+                
                 // If connection test success, send Connected event
                 if sender.send(SshEvent::Connected).is_ok() {
-                    // Wait a little bit for main thread to process
-                    thread::sleep(Duration::from_millis(100));
+                    // Wait a little bit for main thread to process transition
+                    thread::sleep(Duration::from_millis(200));
 
-                    // Thực hiện SSH connection thật
+                    // Execute SSH connection (this will block until SSH session ends)
+                    tracing::info!("Starting SSH session for {}", host.alias);
                     match Self::execute_ssh_blocking(&host) {
                         Ok(_) => {
-                            // SSH session kết thúc
+                            tracing::info!("SSH session ended normally for {}", host.alias);
                             let _ = sender.send(SshEvent::Disconnected);
                         }
                         Err(e) => {
+                            tracing::error!("SSH session error for {}: {}", host.alias, e);
                             let _ = sender.send(SshEvent::Error(e.to_string()));
                         }
                     }
+                } else {
+                    tracing::error!("Failed to send Connected event");
                 }
             }
             Err(e) => {
-                let _ = sender.send(SshEvent::Error(e.to_string()));
+                tracing::error!("SSH connection test failed for {}: {}", host.alias, e);
+                let _ = sender.send(SshEvent::Error(format!("Connection test failed: {}", e)));
             }
         }
+        
+        tracing::info!("SSH thread ending for host: {}", host.alias);
     }
 
     // Test SSH connection trước khi thực sự connect
@@ -368,6 +380,8 @@ impl App {
         use std::process::Command;
 
         let port_str = host.port.unwrap_or(22).to_string();
+
+        tracing::info!("Testing SSH connection to {}@{}:{}", host.user, host.host, port_str);
 
         // Test connection with short timeout
         let output = Command::new("ssh")
@@ -380,6 +394,8 @@ impl App {
             .arg("BatchMode=yes")
             .arg("-o")
             .arg("StrictHostKeyChecking=no")
+            .arg("-o")
+            .arg("LogLevel=ERROR") // Reduce verbose output
             .arg("exit")
             .output()
             .context("Failed to test SSH connection")?;
@@ -387,11 +403,12 @@ impl App {
         if output.status.success() {
             Ok(())
         } else {
-            Err(anyhow::anyhow!("SSH connection test failed"))
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(anyhow::anyhow!("SSH connection test failed: {}", stderr.trim()))
         }
     }
 
-    // Execute SSH connection (blocking)
+    // Execute SSH connection (blocking) - This gives complete control to SSH
     fn execute_ssh_blocking(host: &SshHost) -> Result<()> {
         use std::process::Command;
 
@@ -400,12 +417,17 @@ impl App {
 
         tracing::info!("Executing SSH: ssh {} -p {}", connection_str, port_str);
 
+        // Execute SSH with full control of terminal
         let status = Command::new("ssh")
             .arg(&connection_str)
             .arg("-p")
             .arg(&port_str)
             .arg("-o")
-            .arg("ConnectTimeout=60")
+            .arg("ConnectTimeout=30")
+            .arg("-o")
+            .arg("ServerAliveInterval=60")
+            .arg("-o")
+            .arg("ServerAliveCountMax=3")
             .stdin(std::process::Stdio::inherit())
             .stdout(std::process::Stdio::inherit())
             .stderr(std::process::Stdio::inherit())
@@ -413,12 +435,12 @@ impl App {
             .context("Failed to execute SSH command")?;
 
         if status.success() {
+            tracing::info!("SSH command completed successfully");
             Ok(())
         } else {
-            Err(anyhow::anyhow!(
-                "SSH command failed with status: {}",
-                status
-            ))
+            let error_msg = format!("SSH command failed with status: {}", status);
+            tracing::error!("{}", error_msg);
+            Err(anyhow::anyhow!(error_msg))
         }
     }
 
@@ -438,13 +460,15 @@ impl App {
                             "Connection successful! Launching SSH...".to_string(),
                             Instant::now(),
                         ));
-                        self.ssh_ready_for_terminal = true;
-
+                        
                         // Transition to SSH terminal mode
                         self.transition_to_ssh_mode(terminal)?;
+                        self.ssh_ready_for_terminal = true;
+                        
                         return Ok(false);
                     }
                     SshEvent::Error(err) => {
+                        tracing::error!("SSH error: {}", err);
                         self.is_connecting = false;
                         self.ssh_ready_for_terminal = false;
                         self.ssh_receiver = None;
@@ -452,6 +476,8 @@ impl App {
                         return Ok(false);
                     }
                     SshEvent::Disconnected => {
+                        tracing::info!("SSH session disconnected, restoring TUI");
+                        
                         // SSH session ended, restore TUI
                         self.restore_tui_mode(terminal)?;
                         self.is_connecting = false;
