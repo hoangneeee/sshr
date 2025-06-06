@@ -1,6 +1,6 @@
 use std::time::SystemTime;
 
-use crate::app::App;
+use crate::app::{App, InputMode};
 use ratatui::{
     backend::Backend,
     layout::{Constraint, Direction, Layout, Rect},
@@ -61,76 +61,140 @@ fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {
 }
 
 fn draw_hosts_list<B: Backend>(f: &mut Frame, app: &App, area: Rect) {
-    let title = format!("SSHr - SSH Manager: Easy control your SSH hosts");
+    let title = match app.input_mode {
+        InputMode::Normal => "SSHr - SSH Manager: Easy control your SSH hosts".to_string(),
+        InputMode::Search => format!("Search: {}_", app.search_query),
+    };
+
     let block = Block::default()
         .borders(Borders::ALL)
         .title_style(Style::default().add_modifier(Modifier::BOLD))
         .title(title);
 
-    let list_items: Vec<ListItem> = app
-        .hosts
-        .iter()
-        .enumerate()
-        .map(|(i, host)| {
-            let is_selected = i == app.selected;
+    let list_items: Vec<ListItem> = match app.input_mode {
+        InputMode::Normal => {
+            app.hosts
+                .iter()
+                .enumerate()
+                .map(|(i, host)| {
+                    let is_selected = i == app.selected;
 
-            // Build the host display text
-            let mut text = vec![];
+                    // Build the host display text
+                    let mut text = vec![];
 
-            // Add selection indicator
-            text.push(Span::styled(
-                if is_selected { "> " } else { "  " },
-                Style::default().fg(Color::Green),
-            ));
+                    // Add selection indicator
+                    text.push(Span::styled(
+                        if is_selected { "> " } else { "  " },
+                        Style::default().fg(Color::Green),
+                    ));
 
-            // Add host number
-            text.push(Span::styled(
-                format!("[{}] ", i + 1),
-                Style::default().fg(Color::Yellow),
-            ));
+                    // Add host number
+                    text.push(Span::styled(
+                        format!("[{}] ", i + 1),
+                        Style::default().fg(Color::Yellow),
+                    ));
 
-            // Add alias and connection info
-            text.push(Span::styled(
-                format!(
-                    "{} ({}@{}:{})",
-                    host.alias,
-                    host.user,
-                    host.host,
-                    host.port.unwrap_or(22)
-                ),
-                Style::default().fg(if is_selected {
-                    Color::Black
-                } else {
-                    Color::White
-                }),
-            ));
-
-            // Add group if exists
-            if let Some(group) = &host.group {
-                text.push(Span::raw(" "));
-                text.push(Span::styled(
-                    format!("[Group: {}]", group),
-                    Style::default()
-                        .fg(if is_selected {
+                    // Add alias and connection info
+                    text.push(Span::styled(
+                        format!(
+                            "{} ({}@{}:{})",
+                            host.alias,
+                            host.user,
+                            host.host,
+                            host.port.unwrap_or(22)
+                        ),
+                        Style::default().fg(if is_selected {
                             Color::Black
                         } else {
-                            Color::Gray
-                        })
-                        .add_modifier(Modifier::DIM),
-                ));
-            }
+                            Color::White
+                        }),
+                    ));
 
-            let style = if is_selected {
-                Style::default()
-                    .bg(Color::Green)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
+                    // Add group if exists
+                    if let Some(group) = &host.group {
+                        text.push(Span::raw(" "));
+                        text.push(Span::styled(
+                            format!("[Group: {}]", group),
+                            Style::default()
+                                .fg(if is_selected {
+                                    Color::Black
+                                } else {
+                                    Color::Gray
+                                })
+                                .add_modifier(Modifier::DIM),
+                        ));
+                    }
 
-            ListItem::new(Line::from(text)).style(style)
-        })
-        .collect();
+                    let style = if is_selected {
+                        Style::default()
+                            .bg(Color::Green)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                    };
+
+                    ListItem::new(Line::from(text)).style(style)
+                })
+                .collect()
+        }
+        InputMode::Search => {
+            app.filtered_hosts
+                .iter()
+                .enumerate()
+                .map(|(i, &host_index)| {
+                    let host = &app.hosts[host_index];
+                    let is_selected = i == app.search_selected;
+                    let mut text = vec![];
+
+                    // Add selection indicator
+                    text.push(Span::styled(
+                        if is_selected { "> " } else { "  " },
+                        Style::default().fg(Color::Green),
+                    ));
+                    // Add host number (show original index)
+                    text.push(Span::styled(
+                        format!("[{}] ", host_index + 1),
+                        Style::default().fg(Color::Yellow),
+                    ));
+
+                    // Highlight matching text
+                    let query_lower = app.search_query.to_lowercase();
+                    let alias_highlighted = highlight_text(&host.alias, &query_lower);
+                    let host_highlighted = highlight_text(&host.host, &query_lower);
+
+                    text.extend(alias_highlighted);
+                    text.push(Span::raw(" ("));
+                    text.push(Span::styled(
+                        format!("{}@", host.user),
+                        Style::default().fg(if is_selected {
+                            Color::Black
+                        } else {
+                            Color::White
+                        }),
+                    ));
+                    text.extend(host_highlighted);
+                    text.push(Span::styled(
+                        format!(":{})", host.port.unwrap_or(22)),
+                        Style::default().fg(if is_selected {
+                            Color::Black
+                        } else {
+                            Color::White
+                        }),
+                    ));
+
+                    let style = if is_selected {
+                        Style::default()
+                            .bg(Color::Green)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                    };
+
+                    ListItem::new(Line::from(text)).style(style)
+                })
+                .collect()
+        }
+    };
 
     let list = List::new(list_items)
         .block(block)
@@ -184,14 +248,18 @@ fn draw_footer<B: Backend>(f: &mut Frame, app: &App, area: Rect) {
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(area);
 
-    let (nav_text, action_text) = if app.is_connecting {
-        ("Connecting to SSH host...", "[Ctrl+C] Cancel")
-    } else {
-        (
-            "↑/k: Up  ↓/j: Down  [Enter] Connect",
-            "[e] Edit [r] Reload [q] Quit",
-        )
+    let (nav_text, action_text) = match app.input_mode {
+        InputMode::Normal if app.is_connecting => {
+            ("Connecting to SSH host...", "[Ctrl+C] Cancel")
+        }
+        InputMode::Normal => {
+            ("↑/k: Up  ↓/j: Down  [Enter] Connect  [s] Search", "[e] Edit [r] Reload [q] Quit")
+        }
+        InputMode::Search => {
+            ("↑: Up  ↓: Down  [Enter] Connect", "[Esc] Exit Search  Type to filter")
+        }
     };
+    
 
     let nav_help = Paragraph::new(nav_text).style(Style::default().fg(if app.is_connecting {
         Color::Yellow
@@ -309,4 +377,35 @@ fn draw_enhanced_loading_overlay<B: Backend>(f: &mut Frame, app: &App) {
     // Clear the area và render loading overlay
     f.render_widget(Clear, area);
     f.render_widget(paragraph, area);
+}
+
+fn highlight_text<'a>(text: &'a str, query: &str) -> Vec<Span<'a>> {
+    if query.is_empty() {
+        return vec![Span::raw(text)];
+    }
+
+    let mut spans = Vec::new();
+    let text_lower = text.to_lowercase();
+    
+    if let Some(pos) = text_lower.find(query) {
+        // Before match
+        if pos > 0 {
+            spans.push(Span::raw(&text[..pos]));
+        }
+        
+        // Matched part (highlighted)
+        spans.push(Span::styled(
+            &text[pos..pos + query.len()],
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        ));
+        
+        // After match
+        if pos + query.len() < text.len() {
+            spans.push(Span::raw(&text[pos + query.len()..]));
+        }
+    } else {
+        spans.push(Span::raw(text));
+    }
+    
+    spans
 }
