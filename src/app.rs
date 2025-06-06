@@ -1,4 +1,4 @@
-use crate::config::{AppConfig, ConfigManager};
+use crate::config::ConfigManager;
 use crate::models::SshHost;
 use crate::ui;
 use anyhow::{Context, Result};
@@ -28,6 +28,7 @@ pub enum SshEvent {
 #[derive(Debug)]
 pub enum InputMode {
     Normal,
+    Search,
 }
 
 #[derive(Debug)]
@@ -37,13 +38,14 @@ pub struct App {
     pub selected: usize,
     pub ssh_config_path: PathBuf,
     pub config_manager: ConfigManager,
-    #[allow(dead_code)]
-    pub app_config: AppConfig,
     pub input_mode: InputMode,
     pub is_connecting: bool,
     pub status_message: Option<(String, std::time::Instant)>,
     pub ssh_receiver: Option<Receiver<SshEvent>>,
     pub ssh_ready_for_terminal: bool,
+    pub search_query: String,
+    pub filtered_hosts: Vec<usize>, // Indices of filtered hosts
+    pub search_selected: usize,
 }
 
 impl Default for App {
@@ -66,12 +68,14 @@ impl Default for App {
             selected: 0,
             ssh_config_path,
             config_manager,
-            app_config,
             input_mode: InputMode::Normal,
             is_connecting: false,
             status_message: None,
             ssh_receiver: None,
             ssh_ready_for_terminal: false,
+            search_query: String::new(),
+            filtered_hosts: Vec::new(),
+            search_selected: 0,
         }
     }
 }
@@ -240,7 +244,7 @@ impl App {
 
     // Handle key
     pub fn handle_key_enter<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
-        if let Some(selected_host) = self.get_selected_host().cloned() {
+        if let Some(selected_host) = self.get_current_selected_host().cloned() {
             tracing::info!("Enter pressed, selected host: {:?}", selected_host.alias);
 
             // Tạo channel để communication
@@ -333,7 +337,7 @@ impl App {
     // Worker function run in SSH thread
     fn ssh_thread_worker(sender: Sender<SshEvent>, host: SshHost) {
         tracing::info!("SSH thread started for host: {}", host.alias);
-        
+
         // Send event connecting
         if sender.send(SshEvent::Connecting).is_err() {
             tracing::error!("Failed to send Connecting event");
@@ -344,7 +348,7 @@ impl App {
         match Self::test_ssh_connection(&host) {
             Ok(_) => {
                 tracing::info!("SSH connection test successful for {}", host.alias);
-                
+
                 // If connection test success, send Connected event
                 if sender.send(SshEvent::Connected).is_ok() {
                     // Wait a little bit for main thread to process transition
@@ -371,7 +375,7 @@ impl App {
                 let _ = sender.send(SshEvent::Error(format!("Connection test failed: {}", e)));
             }
         }
-        
+
         tracing::info!("SSH thread ending for host: {}", host.alias);
     }
 
@@ -381,7 +385,12 @@ impl App {
 
         let port_str = host.port.unwrap_or(22).to_string();
 
-        tracing::info!("Testing SSH connection to {}@{}:{}", host.user, host.host, port_str);
+        tracing::info!(
+            "Testing SSH connection to {}@{}:{}",
+            host.user,
+            host.host,
+            port_str
+        );
 
         // Test connection with short timeout
         let output = Command::new("ssh")
@@ -404,7 +413,10 @@ impl App {
             Ok(())
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            Err(anyhow::anyhow!("SSH connection test failed: {}", stderr.trim()))
+            Err(anyhow::anyhow!(
+                "SSH connection test failed: {}",
+                stderr.trim()
+            ))
         }
     }
 
@@ -460,11 +472,11 @@ impl App {
                             "Connection successful! Launching SSH...".to_string(),
                             Instant::now(),
                         ));
-                        
+
                         // Transition to SSH terminal mode
                         self.transition_to_ssh_mode(terminal)?;
                         self.ssh_ready_for_terminal = true;
-                        
+
                         return Ok(false);
                     }
                     SshEvent::Error(err) => {
@@ -477,7 +489,7 @@ impl App {
                     }
                     SshEvent::Disconnected => {
                         tracing::info!("SSH session disconnected, restoring TUI");
-                        
+
                         // SSH session ended, restore TUI
                         self.restore_tui_mode(terminal)?;
                         self.is_connecting = false;
@@ -491,5 +503,93 @@ impl App {
             }
         }
         Ok(false)
+    }
+
+    // Search logic
+    pub fn filter_hosts(&mut self) {
+        if self.search_query.is_empty() {
+            self.filtered_hosts = (0..self.hosts.len()).collect();
+        } else {
+            self.filtered_hosts = self
+                .hosts
+                .iter()
+                .enumerate()
+                .filter(|(_, host)| {
+                    host.alias
+                        .to_lowercase()
+                        .contains(&self.search_query.to_lowercase())
+                        || host
+                            .host
+                            .to_lowercase()
+                            .contains(&self.search_query.to_lowercase())
+                        || host
+                            .user
+                            .to_lowercase()
+                            .contains(&self.search_query.to_lowercase())
+                })
+                .map(|(i, _)| i)
+                .collect();
+        }
+
+        // Reset selection if current selection is out of bounds
+        if self.search_selected >= self.filtered_hosts.len() {
+            self.search_selected = 0;
+        }
+    }
+
+    // pub fn get_filtered_host(&self, index: usize) -> Option<&SshHost> {
+    //     self.filtered_hosts
+    //         .get(index)
+    //         .and_then(|&host_index| self.hosts.get(host_index))
+    // }
+
+    pub fn get_current_selected_host(&self) -> Option<&SshHost> {
+        match self.input_mode {
+            InputMode::Normal => self.get_selected_host(),
+            InputMode::Search => {
+                if let Some(&host_index) = self.filtered_hosts.get(self.search_selected) {
+                    self.hosts.get(host_index)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    pub fn search_select_next(&mut self) {
+        if self.filtered_hosts.is_empty() {
+            return;
+        }
+        if self.search_selected >= self.filtered_hosts.len() - 1 {
+            self.search_selected = 0;
+        } else {
+            self.search_selected += 1;
+        }
+    }
+
+    pub fn search_select_previous(&mut self) {
+        if self.filtered_hosts.is_empty() {
+            return;
+        }
+        if self.search_selected == 0 {
+            self.search_selected = self.filtered_hosts.len() - 1;
+        } else {
+            self.search_selected -= 1;
+        }
+    }
+
+    // Clear search and return to normal mode
+    pub fn clear_search(&mut self) {
+        self.search_query.clear();
+        self.input_mode = InputMode::Normal;
+        self.filtered_hosts = (0..self.hosts.len()).collect();
+        self.search_selected = 0;
+    }
+
+    // Enter search mode
+    pub fn enter_search_mode(&mut self) {
+        self.input_mode = InputMode::Search;
+        self.search_query.clear();
+        self.filter_hosts();
     }
 }

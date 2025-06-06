@@ -23,6 +23,8 @@ mod ui;
 
 use app::App;
 
+use crate::app::InputMode;
+
 /// A TUI for managing and connecting to SSH hosts
 /// Git: https://github.com/hoangneeee/sshr
 #[derive(Parser, Debug)]
@@ -121,7 +123,7 @@ async fn run_app<B: ratatui::backend::Backend>(
         // If we're in SSH mode, suspend the main loop until SSH ends
         if app.ssh_ready_for_terminal {
             tracing::info!("SSH mode active - suspending main loop");
-            
+
             // Wait for SSH session to end with longer intervals
             loop {
                 // Check for SSH events with longer timeout
@@ -130,11 +132,11 @@ async fn run_app<B: ratatui::backend::Backend>(
                     tracing::info!("SSH session ended or interrupted - resuming main loop");
                     break;
                 }
-                
+
                 // Sleep longer to avoid interfering with SSH session
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
-            
+
             // Force redraw when returning from SSH
             terminal.draw(|f| ui::draw::<B>(f, &mut app))?;
             continue;
@@ -157,51 +159,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                     && !app.is_connecting
                     && !app.ssh_ready_for_terminal
                 {
-                    match key_event.code {
-                        KeyCode::Char('q') | KeyCode::Char('Q') => {
-                            app.handle_key_q()?;
-                        }
-                        KeyCode::Char('c') if key_event.modifiers == KeyModifiers::CONTROL => {
-                            app.should_quit = true;
-                        }
-                        KeyCode::Up | KeyCode::Char('k') => {
-                            app.select_previous();
-                        }
-                        KeyCode::Down | KeyCode::Char('j') => {
-                            app.select_next();
-                        }
-                        KeyCode::Char('e') => {
-                            if let Err(e) = app.handle_key_e() {
-                                tracing::error!("Failed to open editor: {}", e);
-                                app.status_message = Some((
-                                    format!("Failed to open editor: {}", e),
-                                    std::time::Instant::now(),
-                                ));
-                            }
-                        }
-                        KeyCode::Esc => {
-                            app.handle_key_esc()?;
-                        }
-                        KeyCode::Enter => {
-                            app.handle_key_enter(terminal)?;
-                        }
-                        KeyCode::Char('r') => {
-                            tracing::info!("Reloading SSH config...");
-                            if let Err(e) = app.load_all_hosts() {
-                                tracing::error!("Failed to reload SSH config: {}", e);
-                                app.status_message = Some((
-                                    format!("Reload failed: {}", e),
-                                    std::time::Instant::now(),
-                                ));
-                            } else {
-                                app.status_message = Some((
-                                    "Config reloaded successfully".to_string(),
-                                    std::time::Instant::now(),
-                                ));
-                            }
-                        }
-                        _ => {}
-                    }
+                    handle_key_events(&mut app, key_event, terminal).await?;
                 }
             }
         }
@@ -215,4 +173,87 @@ async fn run_app<B: ratatui::backend::Backend>(
             terminal.draw(|f| ui::draw::<B>(f, &mut app))?;
         }
     }
+}
+
+async fn handle_key_events<B: ratatui::backend::Backend>(
+    app: &mut App,
+    key_event: crossterm::event::KeyEvent,
+    terminal: &mut Terminal<B>,
+) -> Result<()> {
+    match app.input_mode {
+        InputMode::Normal => match key_event.code {
+            KeyCode::Char('q') | KeyCode::Char('Q') => {
+                app.handle_key_q()?;
+            }
+            KeyCode::Char('c') if key_event.modifiers == KeyModifiers::CONTROL => {
+                app.should_quit = true;
+            }
+            KeyCode::Char('s') => {
+                app.enter_search_mode();
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                app.select_previous();
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                app.select_next();
+            }
+            KeyCode::Char('e') => {
+                if let Err(e) = app.handle_key_e() {
+                    tracing::error!("Failed to open editor: {}", e);
+                    app.status_message = Some((
+                        format!("Failed to open editor: {}", e),
+                        std::time::Instant::now(),
+                    ));
+                }
+            }
+            KeyCode::Esc => {
+                app.handle_key_esc()?;
+            }
+            KeyCode::Enter => {
+                app.handle_key_enter(terminal)?;
+            }
+            KeyCode::Char('r') => {
+                tracing::info!("Reloading SSH config...");
+                if let Err(e) = app.load_all_hosts() {
+                    tracing::error!("Failed to reload SSH config: {}", e);
+                    app.status_message =
+                        Some((format!("Reload failed: {}", e), std::time::Instant::now()));
+                } else {
+                    app.status_message = Some((
+                        "Config reloaded successfully".to_string(),
+                        std::time::Instant::now(),
+                    ));
+                }
+            }
+            _ => {}
+        },
+        InputMode::Search => {
+            match key_event.code {
+                KeyCode::Char(c) => {
+                    app.search_query.push(c);
+                    app.filter_hosts();
+                }
+                KeyCode::Backspace | KeyCode::Delete => {
+                    app.search_query.pop();
+                    app.filter_hosts();
+                }
+                KeyCode::Enter => {
+                    // Connect to selected filtered host
+                    app.handle_key_enter(terminal)?;
+                    app.clear_search();
+                }
+                KeyCode::Esc => {
+                    app.clear_search();
+                }
+                KeyCode::Up => {
+                    app.search_select_previous();
+                }
+                KeyCode::Down => {
+                    app.search_select_next();
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(())
 }
