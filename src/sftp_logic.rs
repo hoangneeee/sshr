@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use tokio::task::spawn_blocking;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -17,7 +16,7 @@ pub enum PanelSide {
     Remote,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AppSftpState {
     pub active_panel: PanelSide,
     

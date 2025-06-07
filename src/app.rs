@@ -1,5 +1,5 @@
 use crate::config::ConfigManager;
-use crate::models::{SshHost};
+use crate::models::SshHost;
 use crate::sftp_logic::AppSftpState;
 use crate::ui;
 use anyhow::{Context, Result};
@@ -19,7 +19,7 @@ use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 use std::{fs, thread};
 
-use crate::app_event::{SshEvent};
+use crate::app_event::{SftpEvent, SshEvent};
 
 #[derive(Debug)]
 pub enum InputMode {
@@ -36,10 +36,20 @@ pub struct App {
     pub ssh_config_path: PathBuf,
     pub config_manager: ConfigManager,
     pub input_mode: InputMode,
-    pub is_connecting: bool,
+
     pub status_message: Option<(String, std::time::Instant)>,
-    pub ssh_receiver: Option<Receiver<SshEvent>>,
+
+    // SSH Mode
+    pub is_connecting: bool,
     pub ssh_ready_for_terminal: bool,
+    pub ssh_receiver: Option<Receiver<SshEvent>>,
+
+    // SFTP Mode
+    pub is_sftp_loading: bool,
+    pub sftp_ready_for_terminal: bool,
+    pub sftp_receiver: Option<Receiver<SftpEvent>>,
+
+    // Search Mode
     pub search_query: String,
     pub filtered_hosts: Vec<usize>, // Indices of filtered hosts
     pub search_selected: usize,
@@ -70,8 +80,14 @@ impl Default for App {
             input_mode: InputMode::Normal,
             is_connecting: false,
             status_message: None,
+            // SSH
             ssh_receiver: None,
             ssh_ready_for_terminal: false,
+            // SFTP
+            sftp_receiver: None,
+            sftp_ready_for_terminal: false,
+            is_sftp_loading: false,
+            // Search
             search_query: String::new(),
             filtered_hosts: Vec::new(),
             search_selected: 0,
@@ -649,44 +665,38 @@ impl App {
     }
 
     /// Enter SFTP mode with the currently selected host
-    pub fn enter_sftp_mode(&mut self) -> Result<()> {
-        let host_info = self
-            .get_selected_host()
-            .map(|h| {
-                (
-                    h.alias.clone(),
-                    h.user.clone(),
-                    h.host.clone(),
-                    h.port.unwrap_or(22),
-                )
-            })
-            .ok_or_else(|| anyhow::anyhow!("No host selected"))?;
+    pub fn enter_sftp_mode<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
+        if let Some(selected_host) = self.get_current_selected_host().cloned() {
+            // Create channel to communication
+            let (sender, receiver) = mpsc::channel::<SftpEvent>();
+            self.sftp_receiver = Some(receiver);
 
-        tracing::info!("Entering SFTP mode for host: {}", host_info.0);
+            // Turn on loading status
+            self.is_sftp_loading = true;
+            self.sftp_ready_for_terminal = true;
+            self.status_message = Some((
+                format!("Initializing SFTP for {}...", selected_host.alias),
+                Instant::now(),
+            ));
 
-        match AppSftpState::new(&host_info.1, &host_info.2, host_info.3) {
-            Ok(sftp_state) => {
-                self.sftp_state = Some(sftp_state);
-                self.input_mode = InputMode::Sftp;
-                self.status_message = Some((
-                    format!("SFTP mode active for {}", host_info.0),
-                    Instant::now(),
-                ));
-                Ok(())
-            }
-            Err(e) => {
-                tracing::error!("Failed to initialize SFTP: {}", e);
-                self.status_message =
-                    Some((format!("SFTP initialization failed: {}", e), Instant::now()));
-                Err(e)
-            }
+            // Initialize AppSftpState asynchronously
+            let host_clone = selected_host.clone();
+            thread::spawn(move || {
+                Self::sftp_thread_worker(sender, host_clone);
+            });
+
+            // Redraw UI to show loading
+            terminal.draw(|f| ui::draw::<B>(f, self))?;
         }
+        Ok(())
     }
 
     pub fn exit_sftp_mode(&mut self) {
         tracing::info!("Exiting SFTP mode");
         self.sftp_state = None;
         self.input_mode = InputMode::Normal;
+        self.is_sftp_loading = false;
+        self.sftp_ready_for_terminal = false;
         self.status_message = Some(("Exited SFTP mode".to_string(), Instant::now()));
     }
 
@@ -712,7 +722,8 @@ impl App {
                     }
                 }
                 KeyCode::Backspace => {
-                    if let Err(e) = sftp_state.open_selected() { // Assuming Backspace goes to parent
+                    if let Err(e) = sftp_state.open_selected() {
+                        // Assuming Backspace goes to parent
                         sftp_state.set_status_message(&format!("Error: {}", e));
                     }
                 }
@@ -741,5 +752,98 @@ impl App {
             }
         }
         Ok(())
+    }
+
+    // Process SFTP events from channel
+    pub fn process_sftp_events<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<bool> {
+        if let Some(receiver) = &self.sftp_receiver {
+            // Non-blocking receive
+            if let Ok(event) = receiver.try_recv() {
+                match event {
+                    SftpEvent::PreConnected(sftp_state) => {
+                        self.sftp_state = Some(sftp_state);
+                        self.input_mode = InputMode::Sftp;
+                        self.status_message = Some((
+                            format!("SFTP mode active for {}", self.sftp_state.as_ref().unwrap().ssh_host),
+                            Instant::now(),
+                        ));
+                        return Ok(false);
+                    }
+                    SftpEvent::Connecting => {
+                        self.status_message =
+                            Some(("Testing connection...".to_string(), Instant::now()));
+                        return Ok(false);
+                    }
+                    SftpEvent::Connected => {
+                        self.status_message = Some((
+                            "Connection successful! Launching SFTP...".to_string(),
+                            Instant::now(),
+                        ));
+                        self.sftp_ready_for_terminal = true;
+                        return Ok(false);
+                    }
+                    SftpEvent::Error(err) => {
+                        tracing::error!("SFTP error: {}", err);
+                        self.is_sftp_loading = false;
+                        self.sftp_ready_for_terminal = false;
+                        self.sftp_receiver = None;
+                        self.status_message =
+                            Some((format!("SFTP Error: {}", err), Instant::now()));
+                        return Ok(false);
+                    }
+                    SftpEvent::Disconnected => {
+                        tracing::info!("SFTP session disconnected, restoring TUI");
+
+                        self.is_sftp_loading = false;
+                        self.sftp_ready_for_terminal = false;
+                        self.sftp_receiver = None;
+                        self.status_message =
+                            Some(("SFTP session ended".to_string(), Instant::now()));
+                        return Ok(true); // Indicate we need to redraw
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    // Worker function run in SFTP thread
+    fn sftp_thread_worker(sender: Sender<SftpEvent>, host: SshHost) {
+        tracing::info!("SFTP thread started for host: {}", host.alias);
+
+        // Send event connecting
+        if sender.send(SftpEvent::Connecting).is_err() {
+            tracing::error!("Failed to send Connecting event");
+            return;
+        }
+
+        // Perform SSH connection test first
+        match AppSftpState::new(&host.user, &host.host, host.port.unwrap_or(22)) {
+            Ok(sftp_state) => {
+                tracing::info!("SFTP connection test successful for {}", host.alias);
+
+                // Send PreConnected event
+                if sender.send(SftpEvent::PreConnected(sftp_state)).is_err() {
+                    tracing::error!("Failed to send PreConnected event");
+                    return;
+                }
+                // If connection test success, send Connected event
+                if sender.send(SftpEvent::Connected).is_ok() {
+                    // Wait a little bit for main thread to process transition
+                    thread::sleep(Duration::from_millis(200));
+                    // Execute SSH connection (this will block until SSH session ends)
+                    tracing::info!("Starting SFTP session for {}", host.alias);
+                } else {
+                    tracing::error!("Failed to send Connected event");
+                }
+            }
+            Err(e) => {
+                tracing::error!("SFTP connection test failed for {}: {}", host.alias, e);
+                let _ = sender.send(SftpEvent::Error(format!("Connection test failed: {}", e)));
+            }
+        }
+
+        tracing::info!("SFTP thread ending for host: {}", host.alias);
     }
 }

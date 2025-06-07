@@ -6,7 +6,7 @@ use ratatui::{
   widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
   Frame,
 };
-use crate::sftp_logic::{AppSftpState, FileItem, PanelSide};
+use crate::{app::App, sftp_logic::{AppSftpState, FileItem, PanelSide}};
 
 pub fn draw_sftp<B: Backend>(f: &mut Frame, sftp_state: &AppSftpState) {
   let main_chunks = Layout::default()

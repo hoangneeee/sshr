@@ -9,8 +9,8 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
-use std::{fs::File, time::Instant};
 use std::path::Path;
+use std::{fs::File, time::Instant};
 use std::{io, time::Duration};
 use tracing_subscriber::{fmt, EnvFilter};
 
@@ -21,7 +21,6 @@ mod config;
 mod models;
 mod sftp_logic;
 mod sftp_ui;
-mod ssh_service;
 mod ui;
 
 use app::{App, InputMode};
@@ -121,6 +120,9 @@ async fn run_app<B: ratatui::backend::Backend>(
         // Process SSH events first
         let needs_redraw = app.process_ssh_events::<B>(terminal)?;
 
+        // Process SFTP events
+        let _ = app.process_sftp_events::<B>(terminal)?;
+
         // If we're in SSH mode, suspend the main loop until SSH ends
         if app.ssh_ready_for_terminal {
             tracing::info!("SSH mode active - suspending main loop");
@@ -169,14 +171,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                     && !app.is_connecting
                     && !app.ssh_ready_for_terminal
                 {
-                    match app.input_mode {
-                        InputMode::Sftp => {
-                            app.handle_sftp_key(key_event, terminal).await?;
-                        }
-                        _ => {
-                            handle_key_events(&mut app, key_event, terminal).await?;
-                        }
-                    }
+                    handle_key_events(&mut app, key_event, terminal).await?;
                 }
             }
         }
@@ -215,17 +210,12 @@ async fn handle_key_events<B: ratatui::backend::Backend>(
                 app.should_quit = true;
             }
             KeyCode::Char('s') => {
+                // Enter search mode
                 app.enter_search_mode();
             }
             KeyCode::Char('f') => {
                 // Enter SFTP mode
-                if let Err(e) = app.enter_sftp_mode() {
-                    tracing::error!("Failed to enter SFTP mode: {}", e);
-                    app.status_message = Some((
-                        format!("Failed to enter SFTP mode: {}", e),
-                        Instant::now(),
-                    ));
-                }
+                app.enter_sftp_mode(terminal)?;
             }
             KeyCode::Up | KeyCode::Char('k') => {
                 app.select_previous();
@@ -236,10 +226,8 @@ async fn handle_key_events<B: ratatui::backend::Backend>(
             KeyCode::Char('e') => {
                 if let Err(e) = app.handle_key_e() {
                     tracing::error!("Failed to open editor: {}", e);
-                    app.status_message = Some((
-                        format!("Failed to open editor: {}", e),
-                        std::time::Instant::now(),
-                    ));
+                    app.status_message =
+                        Some((format!("Failed to open editor: {}", e), Instant::now()));
                 }
             }
             KeyCode::Esc => {
@@ -252,13 +240,10 @@ async fn handle_key_events<B: ratatui::backend::Backend>(
                 tracing::info!("Reloading SSH config...");
                 if let Err(e) = app.load_all_hosts() {
                     tracing::error!("Failed to reload SSH config: {}", e);
-                    app.status_message =
-                        Some((format!("Reload failed: {}", e), std::time::Instant::now()));
+                    app.status_message = Some((format!("Reload failed: {}", e), Instant::now()));
                 } else {
-                    app.status_message = Some((
-                        "Config reloaded successfully".to_string(),
-                        std::time::Instant::now(),
-                    ));
+                    app.status_message =
+                        Some(("Config reloaded successfully".to_string(), Instant::now()));
                 }
             }
             _ => {}
@@ -290,9 +275,7 @@ async fn handle_key_events<B: ratatui::backend::Backend>(
                 _ => {}
             }
         }
-        InputMode::Sftp => match key_event.code {
-            _ => {}
-        },
+        InputMode::Sftp => app.handle_sftp_key(key_event, terminal).await?,
     }
     Ok(())
 }
