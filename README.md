@@ -14,6 +14,7 @@ SSHR is a TUI (Text User Interface) application for managing and connecting to h
 - [Quick Start](#quick-start)
 - [Installation](#installation)
 - [Available Flags](#available-flags)
+- [Keyboard Shortcuts](./docs/keyboard_shortcuts.md)
 - [Contribute](#contribute)
 - [License](#license)
 
