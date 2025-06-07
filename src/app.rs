@@ -1,7 +1,9 @@
 use crate::config::ConfigManager;
-use crate::models::SshHost;
+use crate::models::{SshHost};
+use crate::sftp_logic::AppSftpState;
 use crate::ui;
 use anyhow::{Context, Result};
+use crossterm::event::{KeyCode, KeyEvent};
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
@@ -17,18 +19,13 @@ use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 use std::{fs, thread};
 
-#[derive(Debug, Clone)]
-pub enum SshEvent {
-    Connecting,
-    Connected,
-    Error(String),
-    Disconnected,
-}
+use crate::app_event::{SshEvent};
 
 #[derive(Debug)]
 pub enum InputMode {
     Normal,
     Search,
+    Sftp,
 }
 
 #[derive(Debug)]
@@ -46,6 +43,8 @@ pub struct App {
     pub search_query: String,
     pub filtered_hosts: Vec<usize>, // Indices of filtered hosts
     pub search_selected: usize,
+
+    pub sftp_state: Option<AppSftpState>,
 }
 
 impl Default for App {
@@ -76,6 +75,7 @@ impl Default for App {
             search_query: String::new(),
             filtered_hosts: Vec::new(),
             search_selected: 0,
+            sftp_state: None,
         }
     }
 }
@@ -93,11 +93,27 @@ impl App {
         self.load_custom_hosts()
             .context("Failed to load custom hosts")?;
         self.handle_duplicate_hosts();
+
+        if self.hosts.is_empty() {
+            self.selected = 0;
+        } else if self.selected >= self.hosts.len() {
+            self.selected = self.hosts.len() - 1;
+        }
+        self.filter_hosts();
         Ok(())
     }
 
     pub fn load_ssh_config(&mut self) -> Result<()> {
-        self.hosts.clear();
+        // Clear only system-loaded hosts to allow custom hosts to persist across reloads
+        self.hosts.retain(|h| h.group.is_some()); // Retain only custom hosts (those with a group)
+
+        if !self.ssh_config_path.exists() {
+            tracing::warn!(
+                "System SSH config file not found at {:?}",
+                self.ssh_config_path
+            );
+            return Ok(());
+        }
 
         if !self.ssh_config_path.exists() {
             tracing::warn!(
@@ -121,7 +137,15 @@ impl App {
             if line.to_lowercase().starts_with("host ") {
                 // Save previous host if exists
                 if let Some(host) = current_host.take() {
-                    self.hosts.push(host);
+                    // Check if a host with this alias already exists from custom config
+                    if !self.hosts.iter().any(|h| h.alias == host.alias) {
+                        self.hosts.push(host);
+                    } else {
+                        tracing::warn!(
+                            "Skipping SSH config host '{}' as it's duplicated by a custom host.",
+                            host.alias
+                        );
+                    }
                 }
 
                 // Start new host
@@ -150,21 +174,36 @@ impl App {
 
         // Don't forget to add the last host
         if let Some(host) = current_host {
-            self.hosts.push(host);
+            if !self.hosts.iter().any(|h| h.alias == host.alias) {
+                self.hosts.push(host);
+            } else {
+                tracing::warn!(
+                    "Skipping SSH config host '{}' as it's duplicated by a custom host.",
+                    host.alias
+                );
+            }
         }
+
+        tracing::info!(
+            "Loaded {} hosts from SSH config (after merging with custom hosts)",
+            self.hosts.len()
+        );
 
         // Check reachability for each host
         for host in &mut self.hosts {
-            let socket_addr = format!("{}:{}", host.host, host.port.unwrap_or(22))
-                .to_socket_addrs()
-                .ok()
-                .and_then(|mut addrs| addrs.next());
+            if host.group.is_none() {
+                // Only update description for system hosts if not already set by custom
+                let socket_addr = format!("{}:{}", host.host, host.port.unwrap_or(22))
+                    .to_socket_addrs()
+                    .ok()
+                    .and_then(|mut addrs| addrs.next());
 
-            host.description = if socket_addr.is_some() {
-                Some("Reachable".to_string())
-            } else {
-                Some("Unreachable".to_string())
-            };
+                host.description = if socket_addr.is_some() {
+                    Some("Reachable".to_string())
+                } else {
+                    Some("Unreachable".to_string())
+                };
+            }
         }
 
         Ok(())
@@ -173,20 +212,29 @@ impl App {
     // Load custome hosts from hosts.toml
     pub fn load_custom_hosts(&mut self) -> Result<()> {
         match self.config_manager.load_hosts() {
-            Ok(custom_hosts) => {
-                self.hosts
-                    .extend(custom_hosts.into_iter().map(|host| crate::models::SshHost {
-                        alias: host.alias,
-                        host: host.host,
-                        user: host.user,
-                        port: host.port,
-                        description: host.description,
-                        group: host.group,
-                    }));
+            Ok(mut custom_hosts) => {
+                // Prepend custom hosts to the list, as they often take precedence or are more frequently used.
+                // Filter out any custom hosts that might have duplicate aliases with existing system hosts
+                // (though `handle_duplicate_hosts` will catch this later, this is a good defensive step).
+                let mut existing_aliases: HashSet<String> =
+                    self.hosts.iter().map(|h| h.alias.clone()).collect();
+                custom_hosts.retain(|host| {
+                    if existing_aliases.contains(&host.alias) {
+                        tracing::warn!("Skipping custom host '{}' due to duplicate alias. System host will be used.", host.alias);
+                        false
+                    } else {
+                        existing_aliases.insert(host.alias.clone());
+                        true
+                    }
+                });
+
+                // Insert custom hosts at the beginning
+                self.hosts.splice(0..0, custom_hosts);
                 Ok(())
             }
             Err(e) => {
                 tracing::error!("Failed to load custom hosts: {}", e);
+                // Don't propagate error, just log it, so app can still run.
                 Ok(())
             }
         }
@@ -195,15 +243,17 @@ impl App {
     // Remove duplicate hosts
     pub fn handle_duplicate_hosts(&mut self) {
         let mut seen_aliases = HashSet::new();
-        self.hosts.retain(|host| {
+        let mut unique_hosts = Vec::new();
+        for host in self.hosts.drain(..) {
+            // Use drain to consume self.hosts
             if seen_aliases.contains(&host.alias) {
-                // tracing::warn!("Duplicate alias found: {}", host.alias);
-                false
+                tracing::warn!("Duplicate alias found: {}", host.alias);
             } else {
                 seen_aliases.insert(host.alias.clone());
-                true
+                unique_hosts.push(host);
             }
-        });
+        }
+        self.hosts = unique_hosts;
     }
 
     // Get selected host
@@ -211,7 +261,17 @@ impl App {
         if self.hosts.is_empty() {
             None
         } else {
-            self.hosts.get(self.selected)
+            // Adjust selected index if it's out of bounds after filtering/reloading
+            let current_selected = match self.input_mode {
+                InputMode::Normal => self.selected,
+                InputMode::Search => self
+                    .filtered_hosts
+                    .get(self.search_selected)
+                    .copied()
+                    .unwrap_or(0),
+                InputMode::Sftp => self.selected, // SFTP doesn't change overall host selection
+            };
+            self.hosts.get(current_selected)
         }
     }
 
@@ -224,22 +284,16 @@ impl App {
         if self.hosts.is_empty() {
             return;
         }
-        if self.selected >= self.hosts.len() - 1 {
-            self.selected = 0; // Loop back to the first host
-        } else {
-            self.selected += 1;
-        }
+        let total_hosts = self.hosts.len();
+        self.selected = (self.selected + 1) % total_hosts;
     }
 
     pub fn select_previous(&mut self) {
         if self.hosts.is_empty() {
             return;
         }
-        if self.selected == 0 {
-            self.selected = self.hosts.len() - 1; // Loop back to the last host
-        } else {
-            self.selected -= 1;
-        }
+        let total_hosts = self.hosts.len();
+        self.selected = (self.selected + total_hosts - 1) % total_hosts;
     }
 
     // Handle key
@@ -553,6 +607,7 @@ impl App {
                     None
                 }
             }
+            InputMode::Sftp => None,
         }
     }
 
@@ -591,5 +646,100 @@ impl App {
         self.input_mode = InputMode::Search;
         self.search_query.clear();
         self.filter_hosts();
+    }
+
+    /// Enter SFTP mode with the currently selected host
+    pub fn enter_sftp_mode(&mut self) -> Result<()> {
+        let host_info = self
+            .get_selected_host()
+            .map(|h| {
+                (
+                    h.alias.clone(),
+                    h.user.clone(),
+                    h.host.clone(),
+                    h.port.unwrap_or(22),
+                )
+            })
+            .ok_or_else(|| anyhow::anyhow!("No host selected"))?;
+
+        tracing::info!("Entering SFTP mode for host: {}", host_info.0);
+
+        match AppSftpState::new(&host_info.1, &host_info.2, host_info.3) {
+            Ok(sftp_state) => {
+                self.sftp_state = Some(sftp_state);
+                self.input_mode = InputMode::Sftp;
+                self.status_message = Some((
+                    format!("SFTP mode active for {}", host_info.0),
+                    Instant::now(),
+                ));
+                Ok(())
+            }
+            Err(e) => {
+                tracing::error!("Failed to initialize SFTP: {}", e);
+                self.status_message =
+                    Some((format!("SFTP initialization failed: {}", e), Instant::now()));
+                Err(e)
+            }
+        }
+    }
+
+    pub fn exit_sftp_mode(&mut self) {
+        tracing::info!("Exiting SFTP mode");
+        self.sftp_state = None;
+        self.input_mode = InputMode::Normal;
+        self.status_message = Some(("Exited SFTP mode".to_string(), Instant::now()));
+    }
+
+    pub async fn handle_sftp_key<B: Backend>(
+        &mut self,
+        key: KeyEvent,
+        terminal: &mut Terminal<B>,
+    ) -> Result<()> {
+        if let Some(sftp_state) = &mut self.sftp_state {
+            match key.code {
+                KeyCode::Char('q') => {
+                    self.exit_sftp_mode();
+                }
+                KeyCode::Up => {
+                    sftp_state.navigate_up();
+                }
+                KeyCode::Down => {
+                    sftp_state.navigate_down();
+                }
+                KeyCode::Enter => {
+                    if let Err(e) = sftp_state.open_selected() {
+                        sftp_state.set_status_message(&format!("Error: {}", e));
+                    }
+                }
+                KeyCode::Backspace => {
+                    if let Err(e) = sftp_state.open_selected() { // Assuming Backspace goes to parent
+                        sftp_state.set_status_message(&format!("Error: {}", e));
+                    }
+                }
+                KeyCode::Tab => {
+                    sftp_state.switch_panel();
+                }
+                KeyCode::Char('u') => {
+                    if let Err(e) = sftp_state.upload_file().await {
+                        sftp_state.set_status_message(&format!("Upload error: {}", e));
+                    }
+                }
+                KeyCode::Char('d') => {
+                    if let Err(e) = sftp_state.download_file().await {
+                        sftp_state.set_status_message(&format!("Download error: {}", e));
+                    }
+                }
+                KeyCode::Char('r') => {
+                    if let Err(e) = sftp_state.refresh_local() {
+                        sftp_state.set_status_message(&format!("Local refresh error: {}", e));
+                    }
+                    if let Err(e) = sftp_state.refresh_remote() {
+                        sftp_state.set_status_message(&format!("Remote refresh error: {}", e));
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
     }
 }

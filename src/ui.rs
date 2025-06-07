@@ -64,6 +64,7 @@ fn draw_hosts_list<B: Backend>(f: &mut Frame, app: &App, area: Rect) {
     let title = match app.input_mode {
         InputMode::Normal => "SSHr - SSH Manager: Easy control your SSH hosts".to_string(),
         InputMode::Search => format!("Search: {}_", app.search_query),
+        InputMode::Sftp => "SFTP MODE".to_string(),
     };
 
     let block = Block::default()
@@ -194,6 +195,9 @@ fn draw_hosts_list<B: Backend>(f: &mut Frame, app: &App, area: Rect) {
                 })
                 .collect()
         }
+        InputMode::Sftp => {
+            vec![]
+        }
     };
 
     let list = List::new(list_items)
@@ -256,6 +260,9 @@ fn draw_footer<B: Backend>(f: &mut Frame, app: &App, area: Rect) {
             ("↑/k: Up  ↓/j: Down  [Enter] Connect  [s] Search", "[e] Edit [r] Reload [q] Quit")
         }
         InputMode::Search => {
+            ("↑: Up  ↓: Down  [Enter] Connect", "[Esc] Exit Search  Type to filter")
+        }
+        InputMode::Sftp => {
             ("↑: Up  ↓: Down  [Enter] Connect", "[Esc] Exit Search  Type to filter")
         }
     };
