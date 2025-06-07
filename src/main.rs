@@ -9,21 +9,22 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
-use std::fs::File;
+use std::{fs::File, time::Instant};
 use std::path::Path;
 use std::{io, time::Duration};
 use tracing_subscriber::{fmt, EnvFilter};
 
 mod app;
+mod app_event;
 mod cmd;
 mod config;
 mod models;
+mod sftp_logic;
+mod sftp_ui;
 mod ssh_service;
 mod ui;
 
-use app::App;
-
-use crate::app::InputMode;
+use app::{App, InputMode};
 
 /// A TUI for managing and connecting to SSH hosts
 /// Git: https://github.com/hoangneeee/sshr
@@ -143,7 +144,16 @@ async fn run_app<B: ratatui::backend::Backend>(
         }
 
         // Draw UI (only when not in SSH mode)
-        terminal.draw(|f| ui::draw::<B>(f, &mut app))?;
+        terminal.draw(|f: &mut ratatui::Frame<'_>| match app.input_mode {
+            InputMode::Sftp => {
+                if let Some(sftp_state) = &app.sftp_state {
+                    sftp_ui::draw_sftp::<B>(f, sftp_state);
+                } else {
+                    ui::draw::<B>(f, &mut app);
+                }
+            }
+            _ => ui::draw::<B>(f, &mut app),
+        })?;
 
         // Handle terminal events with appropriate timeout
         let poll_timeout = if app.is_connecting {
@@ -159,7 +169,14 @@ async fn run_app<B: ratatui::backend::Backend>(
                     && !app.is_connecting
                     && !app.ssh_ready_for_terminal
                 {
-                    handle_key_events(&mut app, key_event, terminal).await?;
+                    match app.input_mode {
+                        InputMode::Sftp => {
+                            app.handle_sftp_key(key_event, terminal).await?;
+                        }
+                        _ => {
+                            handle_key_events(&mut app, key_event, terminal).await?;
+                        }
+                    }
                 }
             }
         }
@@ -170,7 +187,16 @@ async fn run_app<B: ratatui::backend::Backend>(
 
         // Force redraw if needed
         if needs_redraw {
-            terminal.draw(|f| ui::draw::<B>(f, &mut app))?;
+            terminal.draw(|f| match app.input_mode {
+                InputMode::Sftp => {
+                    if let Some(sftp_state) = &app.sftp_state {
+                        sftp_ui::draw_sftp::<B>(f, sftp_state);
+                    } else {
+                        ui::draw::<B>(f, &mut app);
+                    }
+                }
+                _ => ui::draw::<B>(f, &mut app),
+            })?;
         }
     }
 }
@@ -190,6 +216,16 @@ async fn handle_key_events<B: ratatui::backend::Backend>(
             }
             KeyCode::Char('s') => {
                 app.enter_search_mode();
+            }
+            KeyCode::Char('f') => {
+                // Enter SFTP mode
+                if let Err(e) = app.enter_sftp_mode() {
+                    tracing::error!("Failed to enter SFTP mode: {}", e);
+                    app.status_message = Some((
+                        format!("Failed to enter SFTP mode: {}", e),
+                        Instant::now(),
+                    ));
+                }
             }
             KeyCode::Up | KeyCode::Char('k') => {
                 app.select_previous();
@@ -254,6 +290,9 @@ async fn handle_key_events<B: ratatui::backend::Backend>(
                 _ => {}
             }
         }
+        InputMode::Sftp => match key_event.code {
+            _ => {}
+        },
     }
     Ok(())
 }
