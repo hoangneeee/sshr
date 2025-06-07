@@ -27,8 +27,8 @@ pub fn draw<B: Backend>(f: &mut Frame, app: &mut App) {
     draw_status_bar::<B>(f, app, chunks[1]);
     draw_footer::<B>(f, app, chunks[2]);
 
-    // Draw loading overlay if connecting
-    if app.is_connecting {
+    // Draw loading overlay if connecting or initializing SFTP
+    if app.is_connecting || app.is_sftp_loading {
         draw_enhanced_loading_overlay::<B>(f, app);
     }
 }
@@ -253,20 +253,20 @@ fn draw_footer<B: Backend>(f: &mut Frame, app: &App, area: Rect) {
         .split(area);
 
     let (nav_text, action_text) = match app.input_mode {
-        InputMode::Normal if app.is_connecting => {
-            ("Connecting to SSH host...", "[Ctrl+C] Cancel")
-        }
-        InputMode::Normal => {
-            ("↑/k: Up  ↓/j: Down  [Enter] Connect  [s] Search", "[e] Edit [r] Reload [q] Quit")
-        }
-        InputMode::Search => {
-            ("↑: Up  ↓: Down  [Enter] Connect", "[Esc] Exit Search  Type to filter")
-        }
-        InputMode::Sftp => {
-            ("↑: Up  ↓: Down  [Enter] Connect", "[Esc] Exit Search  Type to filter")
-        }
+        InputMode::Normal if app.is_connecting => ("Connecting to SSH host...", "[Ctrl+C] Cancel"),
+        InputMode::Normal => (
+            "↑/k: Up  ↓/j: Down  [Enter] Connect  [s] Search [f] SFTP",
+            "[e] Edit [r] Reload [q] Quit",
+        ),
+        InputMode::Search => (
+            "↑: Up  ↓: Down  [Enter] Connect",
+            "[Esc] Exit Search  Type to filter",
+        ),
+        InputMode::Sftp => (
+            "↑: Up  ↓: Down  [Enter] Connect",
+            "[Esc] Exit Search  Type to filter",
+        ),
     };
-    
 
     let nav_help = Paragraph::new(nav_text).style(Style::default().fg(if app.is_connecting {
         Color::Yellow
@@ -308,7 +308,41 @@ fn draw_enhanced_loading_overlay<B: Backend>(f: &mut Frame, app: &App) {
     };
 
     // Create loading content with animation
-    let loading_content = if let Some(host) = app.get_selected_host() {
+    let loading_content = if app.is_sftp_loading {
+        let status_text = if let Some((msg, _)) = &app.status_message {
+            msg.clone()
+        } else {
+            "Initializing SFTP".to_string()
+        };
+        vec![
+            Line::from(vec![
+                Span::styled("🔄 ", Style::default().fg(Color::Yellow)),
+                Span::styled(
+                    "SFTP Initialization",
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("📡 ", Style::default().fg(Color::Blue)),
+                Span::styled(
+                    format!("{}{}", status_text, dots),
+                    Style::default().fg(Color::Cyan),
+                ),
+                Span::raw(padding),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("💡 ", Style::default().fg(Color::Yellow)),
+                Span::styled(
+                    "Please wait...",
+                    Style::default().fg(Color::Gray).add_modifier(Modifier::DIM),
+                ),
+            ]),
+        ]
+    } else if let Some(host) = app.get_selected_host() {
         vec![
             Line::from(vec![
                 Span::styled("🔗 ", Style::default().fg(Color::Yellow)),
@@ -393,19 +427,21 @@ fn highlight_text<'a>(text: &'a str, query: &str) -> Vec<Span<'a>> {
 
     let mut spans = Vec::new();
     let text_lower = text.to_lowercase();
-    
+
     if let Some(pos) = text_lower.find(query) {
         // Before match
         if pos > 0 {
             spans.push(Span::raw(&text[..pos]));
         }
-        
+
         // Matched part (highlighted)
         spans.push(Span::styled(
             &text[pos..pos + query.len()],
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         ));
-        
+
         // After match
         if pos + query.len() < text.len() {
             spans.push(Span::raw(&text[pos + query.len()..]));
@@ -413,6 +449,6 @@ fn highlight_text<'a>(text: &'a str, query: &str) -> Vec<Span<'a>> {
     } else {
         spans.push(Span::raw(text));
     }
-    
+
     spans
 }
