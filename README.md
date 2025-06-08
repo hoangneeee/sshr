@@ -27,6 +27,7 @@ SSHR is a TUI (Text User Interface) application for managing and connecting to h
 ## 🚀 Quick Start
 
 - `sshr` automatically load hosts from your ~/.ssh/config
+- Load customer host file with `hosts.toml` and template file [hosts.toml](./docs/hosts.toml)
 
 ## 📦 Installation
 

@@ -9,17 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
--
+- Feature SFTP mode
 
-### Changed
+### Changed / Fixed
 
--
-
-### Fixed
-
--
+- Update docs keyboard shortcuts
+- Upgrade README.md
+- Fix some bug
 
 ### Removed
+
 -
 
 ---

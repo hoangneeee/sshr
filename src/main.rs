@@ -148,7 +148,7 @@ async fn run_app<B: ratatui::backend::Backend>(
         // Draw UI (only when not in SSH mode)
         terminal.draw(|f: &mut ratatui::Frame<'_>| match app.input_mode {
             InputMode::Sftp => {
-                if let Some(sftp_state) = &app.sftp_state {
+                if let Some(sftp_state) = &mut app.sftp_state {
                     sftp_ui::draw_sftp::<B>(f, sftp_state);
                 } else {
                     ui::draw::<B>(f, &mut app);
@@ -184,7 +184,7 @@ async fn run_app<B: ratatui::backend::Backend>(
         if needs_redraw {
             terminal.draw(|f| match app.input_mode {
                 InputMode::Sftp => {
-                    if let Some(sftp_state) = &app.sftp_state {
+                    if let Some(sftp_state) = &mut app.sftp_state {
                         sftp_ui::draw_sftp::<B>(f, sftp_state);
                     } else {
                         ui::draw::<B>(f, &mut app);

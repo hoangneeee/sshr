@@ -3,12 +3,12 @@ use ratatui::{
   layout::{Constraint, Direction, Layout, Rect},
   style::{Color, Modifier, Style},
   text::{Line, Span},
-  widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
+  widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
   Frame,
 };
-use crate::{app::App, sftp_logic::{AppSftpState, FileItem, PanelSide}};
+use crate::{sftp_logic::{AppSftpState, FileItem, PanelSide}};
 
-pub fn draw_sftp<B: Backend>(f: &mut Frame, sftp_state: &AppSftpState) {
+pub fn draw_sftp<B: Backend>(f: &mut Frame, sftp_state: &mut AppSftpState) {
   let main_chunks = Layout::default()
       .direction(Direction::Vertical)
       .constraints([
@@ -27,6 +27,7 @@ pub fn draw_sftp<B: Backend>(f: &mut Frame, sftp_state: &AppSftpState) {
   draw_file_panel::<B>(
       f,
       panels[0],
+      &mut sftp_state.local_list_state,
       &sftp_state.local_files,
       sftp_state.local_selected,
       &format!("Local: {}", sftp_state.local_current_path.display()),
@@ -37,6 +38,7 @@ pub fn draw_sftp<B: Backend>(f: &mut Frame, sftp_state: &AppSftpState) {
   draw_file_panel::<B>(
       f,
       panels[1],
+      &mut sftp_state.remote_list_state,
       &sftp_state.remote_files,
       sftp_state.remote_selected,
       &format!("Remote: {}", sftp_state.remote_current_path),
@@ -55,6 +57,7 @@ pub fn draw_sftp<B: Backend>(f: &mut Frame, sftp_state: &AppSftpState) {
 fn draw_file_panel<B: Backend>(
   f: &mut Frame,
   area: Rect,
+  list_state: &mut ListState,
   files: &[FileItem],
   selected: usize,
   title: &str,
@@ -148,7 +151,7 @@ fn draw_file_panel<B: Backend>(
       .collect();
 
   let list = List::new(list_items).block(block);
-  f.render_widget(list, area);
+  f.render_stateful_widget(list, area, list_state);
 }
 
 fn draw_sftp_footer<B: Backend>(f: &mut Frame, area: Rect, sftp_state: &AppSftpState) {
