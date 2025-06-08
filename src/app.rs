@@ -12,14 +12,13 @@ use crossterm::{
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
 
+use crate::app_event::{SftpEvent, SshEvent};
 use open;
-use ratatui::{backend::Backend, Terminal};
+use ratatui::{backend::Backend, widgets::ListState, Terminal};
 use std::collections::HashSet;
 use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 use std::{fs, thread};
-
-use crate::app_event::{SftpEvent, SshEvent};
 
 #[derive(Debug)]
 pub enum InputMode {
@@ -48,13 +47,14 @@ pub struct App {
     pub is_sftp_loading: bool,
     pub sftp_ready_for_terminal: bool,
     pub sftp_receiver: Option<Receiver<SftpEvent>>,
+    pub sftp_state: Option<AppSftpState>,
 
     // Search Mode
     pub search_query: String,
     pub filtered_hosts: Vec<usize>, // Indices of filtered hosts
     pub search_selected: usize,
 
-    pub sftp_state: Option<AppSftpState>,
+    pub host_list_state: ListState,
 }
 
 impl Default for App {
@@ -87,11 +87,13 @@ impl Default for App {
             sftp_receiver: None,
             sftp_ready_for_terminal: false,
             is_sftp_loading: false,
+            sftp_state: None,
+
             // Search
             search_query: String::new(),
             filtered_hosts: Vec::new(),
             search_selected: 0,
-            sftp_state: None,
+            host_list_state: ListState::default(),
         }
     }
 }
@@ -100,6 +102,7 @@ impl App {
     pub fn new() -> Result<Self> {
         let mut app = Self::default();
         app.load_all_hosts().context("Failed to load hosts")?;
+        app.host_list_state.select(Some(app.selected));
         Ok(app)
     }
 
@@ -302,6 +305,7 @@ impl App {
         }
         let total_hosts = self.hosts.len();
         self.selected = (self.selected + 1) % total_hosts;
+        self.host_list_state.select(Some(self.selected));
     }
 
     pub fn select_previous(&mut self) {
@@ -310,6 +314,7 @@ impl App {
         }
         let total_hosts = self.hosts.len();
         self.selected = (self.selected + total_hosts - 1) % total_hosts;
+        self.host_list_state.select(Some(self.selected));
     }
 
     // Handle key
@@ -605,6 +610,12 @@ impl App {
         if self.search_selected >= self.filtered_hosts.len() {
             self.search_selected = 0;
         }
+
+        match self.input_mode {
+            InputMode::Normal => self.host_list_state.select(Some(self.selected)),
+            InputMode::Search => self.host_list_state.select(Some(self.search_selected)),
+            InputMode::Sftp => {}
+        }
     }
 
     // pub fn get_filtered_host(&self, index: usize) -> Option<&SshHost> {
@@ -636,6 +647,7 @@ impl App {
         } else {
             self.search_selected += 1;
         }
+        self.host_list_state.select(Some(self.search_selected));
     }
 
     pub fn search_select_previous(&mut self) {
@@ -647,6 +659,7 @@ impl App {
         } else {
             self.search_selected -= 1;
         }
+        self.host_list_state.select(Some(self.search_selected));
     }
 
     // Clear search and return to normal mode
@@ -655,6 +668,7 @@ impl App {
         self.input_mode = InputMode::Normal;
         self.filtered_hosts = (0..self.hosts.len()).collect();
         self.search_selected = 0;
+        self.host_list_state.select(Some(self.selected));
     }
 
     // Enter search mode
@@ -764,7 +778,10 @@ impl App {
                         self.sftp_state = Some(sftp_state);
                         self.input_mode = InputMode::Sftp;
                         self.status_message = Some((
-                            format!("SFTP mode active for {}", self.sftp_state.as_ref().unwrap().ssh_host),
+                            format!(
+                                "SFTP mode active for {}",
+                                self.sftp_state.as_ref().unwrap().ssh_host
+                            ),
                             Instant::now(),
                         ));
                         return Ok(false);
@@ -801,7 +818,7 @@ impl App {
                             Some(("SFTP session ended".to_string(), Instant::now()));
                         return Ok(true); // Indicate we need to redraw
                     }
-                    _ => {}
+                    // _ => {}
                 }
             }
         }

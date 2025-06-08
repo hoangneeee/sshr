@@ -60,7 +60,7 @@ fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
-fn draw_hosts_list<B: Backend>(f: &mut Frame, app: &App, area: Rect) {
+fn draw_hosts_list<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
     let title = match app.input_mode {
         InputMode::Normal => "SSHr - SSH Manager: Easy control your SSH hosts".to_string(),
         InputMode::Search => format!("Search: {}_", app.search_query),
@@ -205,7 +205,7 @@ fn draw_hosts_list<B: Backend>(f: &mut Frame, app: &App, area: Rect) {
         .highlight_symbol(">")
         .highlight_style(Style::default().add_modifier(Modifier::BOLD));
 
-    f.render_widget(list, area);
+    f.render_stateful_widget(list, area, &mut app.host_list_state);
 }
 
 fn draw_status_bar<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {

@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use ratatui::widgets::ListState;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -24,11 +25,13 @@ pub struct AppSftpState {
     pub local_current_path: PathBuf,
     pub local_files: Vec<FileItem>,
     pub local_selected: usize,
+    pub local_list_state: ListState,
     
     // Remote panel state
     pub remote_current_path: String,
     pub remote_files: Vec<FileItem>,
     pub remote_selected: usize,
+    pub remote_list_state: ListState,
     
     // SFTP connection info
     pub ssh_host: String,
@@ -46,12 +49,18 @@ impl AppSftpState {
         
         let mut state = Self {
             active_panel: PanelSide::Local,
+            // LOCAL
             local_current_path: current_dir,
             local_files: Vec::new(),
             local_selected: 0,
+            local_list_state: ListState::default(),
+
+            // REMOTE
             remote_current_path: "/".to_string(),
             remote_files: Vec::new(),
             remote_selected: 0,
+            remote_list_state: ListState::default(),
+
             ssh_host: ssh_host.to_string(),
             ssh_user: ssh_user.to_string(),
             ssh_port,
@@ -92,6 +101,7 @@ impl AppSftpState {
                 } else if !self.local_files.is_empty() {
                     self.local_selected = self.local_files.len() - 1;
                 }
+                self.local_list_state.select(Some(self.local_selected));
             }
             PanelSide::Remote => {
                 if self.remote_selected > 0 {
@@ -99,6 +109,7 @@ impl AppSftpState {
                 } else if !self.remote_files.is_empty() {
                     self.remote_selected = self.remote_files.len() - 1;
                 }
+                self.remote_list_state.select(Some(self.remote_selected));
             }
         }
     }
@@ -111,6 +122,7 @@ impl AppSftpState {
                 } else {
                     self.local_selected = 0;
                 }
+                self.local_list_state.select(Some(self.local_selected));
             }
             PanelSide::Remote => {
                 if self.remote_selected < self.remote_files.len().saturating_sub(1) {
@@ -118,6 +130,7 @@ impl AppSftpState {
                 } else {
                     self.remote_selected = 0;
                 }
+                self.remote_list_state.select(Some(self.remote_selected));
             }
         }
     }
@@ -143,6 +156,7 @@ impl AppSftpState {
                                 self.local_current_path = self.local_current_path.join(name);
                             }
                             self.local_selected = 0;
+                            self.local_list_state.select(Some(self.local_selected));
                             self.refresh_local()?;
                         }
                         FileItem::File { .. } => {
@@ -180,6 +194,7 @@ impl AppSftpState {
                                 };
                             }
                             self.remote_selected = 0;
+                            self.remote_list_state.select(Some(self.remote_selected));
                             self.refresh_remote()?;
                         }
                         FileItem::File { .. } => {

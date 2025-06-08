@@ -13,6 +13,7 @@ pub enum SftpEvent {
     Connecting,
     PreConnected(AppSftpState),
     Connected,
+    #[allow(dead_code)]
     Disconnected,
     Error(String),
     // ListLocalDone(Vec<crate::models::DirEntry>),
