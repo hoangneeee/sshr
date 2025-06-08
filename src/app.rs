@@ -1,6 +1,6 @@
 use crate::config::ConfigManager;
 use crate::models::SshHost;
-use crate::sftp_logic::AppSftpState;
+use crate::sftp_logic::{AppSftpState};
 use crate::ui;
 use anyhow::{Context, Result};
 use crossterm::event::{KeyCode, KeyEvent};

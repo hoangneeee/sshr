@@ -26,8 +26,6 @@ mod ui;
 use app::{App, InputMode};
 use ui::{
     hosts_list::{draw},
-    footer::draw_footer,
-    status_bar::draw_status_bar,
 };
 
 /// A TUI for managing and connecting to SSH hosts
