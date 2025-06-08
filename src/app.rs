@@ -19,6 +19,7 @@ use std::collections::HashSet;
 use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 use std::{fs, thread};
+use ui::hosts_list::draw;
 
 #[derive(Debug)]
 pub enum InputMode {
@@ -341,7 +342,7 @@ impl App {
             });
 
             // Redraw UI để hiển thị loading
-            terminal.draw(|f| ui::draw::<B>(f, self))?;
+            terminal.draw(|f| draw::<B>(f, self))?;
         }
         Ok(())
     }
@@ -700,7 +701,7 @@ impl App {
             });
 
             // Redraw UI to show loading
-            terminal.draw(|f| ui::draw::<B>(f, self))?;
+            terminal.draw(|f| draw::<B>(f, self))?;
         }
         Ok(())
     }

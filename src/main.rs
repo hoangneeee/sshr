@@ -24,6 +24,11 @@ mod sftp_ui;
 mod ui;
 
 use app::{App, InputMode};
+use ui::{
+    hosts_list::{draw},
+    footer::draw_footer,
+    status_bar::draw_status_bar,
+};
 
 /// A TUI for managing and connecting to SSH hosts
 /// Git: https://github.com/hoangneeee/sshr
@@ -141,7 +146,7 @@ async fn run_app<B: ratatui::backend::Backend>(
             }
 
             // Force redraw when returning from SSH
-            terminal.draw(|f| ui::draw::<B>(f, &mut app))?;
+            terminal.draw(|f| draw::<B>(f, &mut app))?;
             continue;
         }
 
@@ -151,10 +156,10 @@ async fn run_app<B: ratatui::backend::Backend>(
                 if let Some(sftp_state) = &mut app.sftp_state {
                     sftp_ui::draw_sftp::<B>(f, sftp_state);
                 } else {
-                    ui::draw::<B>(f, &mut app);
+                    draw::<B>(f, &mut app);
                 }
             }
-            _ => ui::draw::<B>(f, &mut app),
+            _ => draw::<B>(f, &mut app),
         })?;
 
         // Handle terminal events with appropriate timeout
@@ -187,10 +192,10 @@ async fn run_app<B: ratatui::backend::Backend>(
                     if let Some(sftp_state) = &mut app.sftp_state {
                         sftp_ui::draw_sftp::<B>(f, sftp_state);
                     } else {
-                        ui::draw::<B>(f, &mut app);
+                        draw::<B>(f, &mut app);
                     }
                 }
-                _ => ui::draw::<B>(f, &mut app),
+                _ => draw::<B>(f, &mut app),
             })?;
         }
     }

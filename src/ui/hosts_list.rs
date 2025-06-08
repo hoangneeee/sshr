@@ -1,6 +1,3 @@
-use std::time::SystemTime;
-
-use crate::app::{App, InputMode};
 use ratatui::{
     backend::Backend,
     layout::{Constraint, Direction, Layout, Rect},
@@ -9,6 +6,10 @@ use ratatui::{
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
     Frame,
 };
+use std::time::SystemTime;
+
+use crate::app::{App, InputMode};
+use crate::ui::{footer::draw_footer, status_bar::draw_status_bar};
 
 pub fn draw<B: Backend>(f: &mut Frame, app: &mut App) {
     let chunks = Layout::default()
@@ -206,84 +207,6 @@ fn draw_hosts_list<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
         .highlight_style(Style::default().add_modifier(Modifier::BOLD));
 
     f.render_stateful_widget(list, area, &mut app.host_list_state);
-}
-
-fn draw_status_bar<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
-    if let Some((message, timestamp)) = &app.status_message {
-        // Clear messages older than 5 seconds (except when connecting)
-        let should_show = if app.is_connecting {
-            true // Always show status during connection
-        } else {
-            timestamp.elapsed().as_secs() < 5
-        };
-
-        if should_show {
-            let style = if message.to_lowercase().contains("error")
-                || message.to_lowercase().contains("failed")
-            {
-                Style::default().fg(Color::Red)
-            } else if message.to_lowercase().contains("success")
-                || message.to_lowercase().contains("successful")
-                || message.to_lowercase().contains("ended")
-            {
-                Style::default().fg(Color::Green)
-            } else if message.to_lowercase().contains("connecting")
-                || message.to_lowercase().contains("testing")
-            {
-                Style::default().fg(Color::Cyan)
-            } else {
-                Style::default().fg(Color::Yellow)
-            };
-
-            let paragraph = Paragraph::new(message.as_str())
-                .style(style)
-                .alignment(ratatui::layout::Alignment::Center);
-            f.render_widget(paragraph, area);
-        } else {
-            // Clear the status message if it's expired
-            app.clear_status_message();
-        }
-    }
-}
-
-fn draw_footer<B: Backend>(f: &mut Frame, app: &App, area: Rect) {
-    let footer = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(area);
-
-    let (nav_text, action_text) = match app.input_mode {
-        InputMode::Normal if app.is_connecting => ("Connecting to SSH host...", "[Ctrl+C] Cancel"),
-        InputMode::Normal => (
-            "↑/k: Up  ↓/j: Down  [Enter] Connect  [s] Search [f] SFTP",
-            "[e] Edit [r] Reload [q] Quit",
-        ),
-        InputMode::Search => (
-            "↑: Up  ↓: Down  [Enter] Connect",
-            "[Esc] Exit Search  Type to filter",
-        ),
-        InputMode::Sftp => (
-            "↑: Up  ↓: Down  [Enter] Connect",
-            "[Esc] Exit Search  Type to filter",
-        ),
-    };
-
-    let nav_help = Paragraph::new(nav_text).style(Style::default().fg(if app.is_connecting {
-        Color::Yellow
-    } else {
-        Color::Gray
-    }));
-
-    let action_help = Paragraph::new(action_text)
-        .style(Style::default().fg(if app.is_connecting {
-            Color::Red
-        } else {
-            Color::Gray
-        }))
-        .alignment(ratatui::layout::Alignment::Right);
-
-    f.render_widget(nav_help, footer[0]);
-    f.render_widget(action_help, footer[1]);
 }
 
 fn draw_enhanced_loading_overlay<B: Backend>(f: &mut Frame, app: &App) {
