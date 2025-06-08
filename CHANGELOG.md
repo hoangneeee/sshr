@@ -9,17 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+
+### Changed / Fixed
+
+
+### Removed
+
+
+---
+
+### [0.5.0] - 2025-06-08
+
+### Added
+
 - Feature SFTP mode
 
 ### Changed / Fixed
 
 - Update docs keyboard shortcuts
 - Upgrade README.md
-- Fix some bug
-
-### Removed
-
--
+- Fix scroll list view ssh mode and sftp mode
 
 ---
 
