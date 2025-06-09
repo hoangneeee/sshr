@@ -14,19 +14,20 @@ use std::{fs::File, time::Instant};
 use std::{io, time::Duration};
 use tracing_subscriber::{fmt, EnvFilter};
 
-mod app;
 mod app_event;
 mod cmd;
 mod config;
 mod models;
 mod sftp_logic;
 mod sftp_ui;
+mod app;
 mod ui;
 
-use app::{App, InputMode};
 use ui::{
     hosts_list::{draw},
 };
+
+use crate::app::{App, InputMode};
 
 /// A TUI for managing and connecting to SSH hosts
 /// Git: https://github.com/hoangneeee/sshr
@@ -278,7 +279,7 @@ async fn handle_key_events<B: ratatui::backend::Backend>(
                 _ => {}
             }
         }
-        InputMode::Sftp => app.handle_sftp_key(key_event, terminal).await?,
+        InputMode::Sftp => app.handle_sftp_key(key_event).await?,
     }
     Ok(())
 }

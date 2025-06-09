@@ -1,7 +1,6 @@
 use super::types::{AppSftpState, PanelSide};
 use anyhow::{Context, Result};
 use ratatui::widgets::ListState;
-use std::time::Duration;
 
 impl AppSftpState {
     /// Create a new instance of AppSftpState
@@ -46,15 +45,6 @@ impl AppSftpState {
     pub fn clear_status_message(&mut self) {
         self.status_message = None;
         self.status_message_time = None;
-    }
-
-    /// Check if the status message should be cleared (after timeout)
-    pub fn should_clear_status(&self) -> bool {
-        if let Some(time) = self.status_message_time {
-            time.elapsed() > Duration::from_secs(3)
-        } else {
-            false
-        }
     }
 
     /// Switch the active panel between local and remote
