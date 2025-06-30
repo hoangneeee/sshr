@@ -1,3 +1,4 @@
+use crate::app::ActivePanel;
 use crate::app::{keymap_ext::AppKeymapExt, App, InputMode};
 use crate::app_event::SshEvent;
 use anyhow::Result;
@@ -10,45 +11,30 @@ use std::time::Instant;
 impl App {
     // Group navigation and management
     pub fn toggle_current_group(&mut self) {
-        let current_group = match self.get_current_group() {
-            Some(group) => group.to_string(),
-            None => return,
-        };
-
-        if !self.collapsed_groups.remove(&current_group) {
-            // If remove returns false, the group wasn't in the set, so insert it
-            self.collapsed_groups.insert(current_group);
-        }
+        // Implementation removed as per user's previous edit
     }
 
     pub fn next_group(&mut self) {
         if !self.groups.is_empty() {
-            self.current_group_index = (self.current_group_index + 1) % self.groups.len();
-            self.select_first_in_group();
+            self.selected_group = (self.selected_group + 1) % self.groups.len();
+            self.group_list_state.select(Some(self.selected_group));
+            self.update_hosts_for_selected_group();
+            self.selected_host = 0;
+            self.host_list_state.select(Some(self.selected_host));
         }
     }
 
     pub fn previous_group(&mut self) {
         if !self.groups.is_empty() {
-            self.current_group_index =
-                (self.current_group_index + self.groups.len() - 1) % self.groups.len();
-            self.select_first_in_group();
+            self.selected_group = (self.selected_group + self.groups.len() - 1) % self.groups.len();
+            self.group_list_state.select(Some(self.selected_group));
+            self.update_hosts_for_selected_group();
+            self.selected_host = 0;
+            self.host_list_state.select(Some(self.selected_host));
         }
     }
 
-    fn select_first_in_group(&mut self) {
-        if let Some(current_group) = self.get_current_group() {
-            if let Some((index, _)) = self
-                .hosts
-                .iter()
-                .enumerate()
-                .find(|(_, host)| host.group.as_deref().unwrap_or("Ungrouped") == current_group)
-            {
-                self.selected = index;
-                self.host_list_state.select(Some(self.selected));
-            }
-        }
-    }
+    // update_hosts_for_selected_group is now implemented in state.rs
     // Handle key
     pub fn handle_key_enter<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
         if let Some(selected_host) = self.get_current_selected_host().cloned() {
@@ -114,17 +100,23 @@ impl App {
     }
 
     pub fn handle_key_tab(&mut self) -> Result<()> {
-        self.next_group();
+        self.switch_panel();
         Ok(())
     }
 
     pub fn handle_key_right(&mut self) -> Result<()> {
-        self.toggle_current_group();
+        match self.active_panel {
+            ActivePanel::Groups => self.next_group(),
+            ActivePanel::Hosts => self.select_next(),
+        }
         Ok(())
     }
 
     pub fn handle_key_left(&mut self) -> Result<()> {
-        self.toggle_current_group();
+        match self.active_panel {
+            ActivePanel::Groups => self.previous_group(),
+            ActivePanel::Hosts => self.select_previous(),
+        }
         Ok(())
     }
 

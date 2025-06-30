@@ -6,6 +6,37 @@ use std::fs;
 use std::net::ToSocketAddrs;
 
 impl App {
+    /// Update the list of groups and the hosts in the current group
+    pub fn update_groups(&mut self) {
+        // Extract unique group names from hosts
+        let mut groups: Vec<String> = self.hosts
+            .iter()
+            .filter_map(|host| host.group.clone())
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        
+        // Sort groups alphabetically
+        groups.sort();
+        
+        // Update groups list
+        self.groups = groups;
+        
+        // If no groups, clear the current group selection
+        if self.groups.is_empty() {
+            self.hosts_in_current_group.clear();
+            return;
+        }
+        
+        // Ensure selected_group is within bounds
+        if self.selected_group >= self.groups.len() {
+            self.selected_group = self.groups.len().saturating_sub(1);
+        }
+        
+        // Update hosts for the current group
+        self.update_hosts_for_selected_group();
+    }
+
     pub fn load_all_hosts(&mut self) -> Result<()> {
         self.load_ssh_config()
             .context("Failed to load SSH config")?;
@@ -13,10 +44,13 @@ impl App {
             .context("Failed to load custom hosts")?;
         self.handle_duplicate_hosts();
 
+        // Update groups after loading all hosts
+        self.update_groups();
+        
         if self.hosts.is_empty() {
-            self.selected = 0;
-        } else if self.selected >= self.hosts.len() {
-            self.selected = self.hosts.len() - 1;
+            self.selected_host = 0;
+        } else if self.selected_host >= self.hosts.len() {
+            self.selected_host = self.hosts.len().saturating_sub(1);
         }
         self.filter_hosts();
         Ok(())
@@ -182,13 +216,13 @@ impl App {
         } else {
             // Adjust selected index if it's out of bounds after filtering/reloading
             let current_selected = match self.input_mode {
-                InputMode::Normal => self.selected,
+                InputMode::Normal => self.selected_host,
                 InputMode::Search => self
                     .filtered_hosts
                     .get(self.search_selected)
                     .copied()
                     .unwrap_or(0),
-                InputMode::Sftp => self.selected, // SFTP doesn't change overall host selection
+                InputMode::Sftp => self.selected_host, // SFTP doesn't change overall host selection
             };
             self.hosts.get(current_selected)
         }

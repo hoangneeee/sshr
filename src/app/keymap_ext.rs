@@ -6,6 +6,6 @@ pub trait AppKeymapExt {
 
 impl AppKeymapExt for App {
     fn get_current_group(&self) -> Option<&str> {
-        self.groups.get(self.current_group_index).map(|s| s.as_str())
+        self.groups.get(self.selected_group).map(|s| s.as_str())
     }
 }
