@@ -1,14 +1,54 @@
+use crate::app::{keymap_ext::AppKeymapExt, App, InputMode};
 use crate::app_event::SshEvent;
-use crate::app::{App, InputMode};
-use crate::ui::hosts_list::draw;
 use anyhow::Result;
-use ratatui::{backend::Backend, Terminal};
-use std::sync::mpsc::{self};
+use ratatui::backend::Backend;
+use ratatui::Terminal;
+use std::sync::mpsc;
 use std::thread;
 use std::time::Instant;
 
-
 impl App {
+    // Group navigation and management
+    pub fn toggle_current_group(&mut self) {
+        let current_group = match self.get_current_group() {
+            Some(group) => group.to_string(),
+            None => return,
+        };
+
+        if !self.collapsed_groups.remove(&current_group) {
+            // If remove returns false, the group wasn't in the set, so insert it
+            self.collapsed_groups.insert(current_group);
+        }
+    }
+
+    pub fn next_group(&mut self) {
+        if !self.groups.is_empty() {
+            self.current_group_index = (self.current_group_index + 1) % self.groups.len();
+            self.select_first_in_group();
+        }
+    }
+
+    pub fn previous_group(&mut self) {
+        if !self.groups.is_empty() {
+            self.current_group_index =
+                (self.current_group_index + self.groups.len() - 1) % self.groups.len();
+            self.select_first_in_group();
+        }
+    }
+
+    fn select_first_in_group(&mut self) {
+        if let Some(current_group) = self.get_current_group() {
+            if let Some((index, _)) = self
+                .hosts
+                .iter()
+                .enumerate()
+                .find(|(_, host)| host.group.as_deref().unwrap_or("Ungrouped") == current_group)
+            {
+                self.selected = index;
+                self.host_list_state.select(Some(self.selected));
+            }
+        }
+    }
     // Handle key
     pub fn handle_key_enter<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
         if let Some(selected_host) = self.get_current_selected_host().cloned() {
@@ -32,8 +72,8 @@ impl App {
                 Self::ssh_thread_worker(sender, host_clone);
             });
 
-            // Redraw UI để hiển thị loading
-            terminal.draw(|f| draw::<B>(f, self))?;
+            // Redraw UI to show loading
+            terminal.draw(|f| crate::ui::hosts_list::draw::<B>(f, self))?;
         }
         Ok(())
     }
@@ -70,6 +110,26 @@ impl App {
 
     pub fn handle_key_esc(&mut self) -> Result<()> {
         self.input_mode = InputMode::Normal;
+        Ok(())
+    }
+
+    pub fn handle_key_tab(&mut self) -> Result<()> {
+        self.next_group();
+        Ok(())
+    }
+
+    pub fn handle_key_right(&mut self) -> Result<()> {
+        self.toggle_current_group();
+        Ok(())
+    }
+
+    pub fn handle_key_left(&mut self) -> Result<()> {
+        self.toggle_current_group();
+        Ok(())
+    }
+
+    pub fn handle_shift_tab(&mut self) -> Result<()> {
+        self.previous_group();
         Ok(())
     }
 }

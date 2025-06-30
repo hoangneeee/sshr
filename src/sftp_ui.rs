@@ -107,7 +107,7 @@ fn draw_file_panel<B: Backend>(
                       ("📁 ", Color::Blue)
                   }
               }
-              FileItem::File { name, size: _ } => ("📄 ", Color::White),
+              FileItem::File { name: _name, size: _ } => ("📄 ", Color::White),
           };
 
           spans.push(Span::styled(icon, Style::default().fg(Color::Yellow)));
