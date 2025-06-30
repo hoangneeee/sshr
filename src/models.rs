@@ -22,11 +22,3 @@ impl SshHost {
         }
     }
 }
-
-#[derive(Debug, Clone)]
-pub struct DirEntry {
-    pub name: String,
-    pub is_dir: bool,
-    pub path: String, // Full path for local or remote
-    pub size: Option<u64>,
-}

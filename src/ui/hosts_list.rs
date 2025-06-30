@@ -64,53 +64,78 @@ fn draw_hosts_list<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn draw_groups_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
+    let is_active = app.active_panel == ActivePanel::Groups;
     let title = format!(
-        " {} Groups ",
-        if app.active_panel == ActivePanel::Groups { ">" } else { " " }
+        " {} 🫂 Groups ",
+        if is_active { ">" } else { " " }
     );
     
     let items: Vec<ListItem> = app.groups
         .iter()
         .enumerate()
         .map(|(i, group)| {
-            let is_selected = i == app.selected_group && app.active_panel == ActivePanel::Groups;
+            let is_selected = i == app.selected_group && is_active;
             let prefix = if is_selected { "> " } else { "  " };
             
-            let style = if is_selected {
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Green)
-                    .add_modifier(Modifier::BOLD)
+            let (text_style, bg_style) = if is_selected {
+                (
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                    Style::default().bg(Color::Green)
+                )
             } else {
-                Style::default().fg(Color::White)
+                (Style::default().fg(Color::White), Style::default())
             };
             
-            ListItem::new(Line::from(vec![
-                Span::styled(prefix, style),
-                Span::styled(format!("[{}] {}", i + 1, group), style),
-            ]))
+            let mut spans = vec![
+                Span::styled(prefix, text_style),
+                Span::styled(
+                    format!("[{}] {}", i + 1, group),
+                    if is_selected {
+                        text_style
+                    } else {
+                        text_style.fg(Color::LightYellow).add_modifier(Modifier::BOLD)
+                    }
+                )
+            ];
+            
+            let line = Line::from(spans);
+            ListItem::new(line).style(bg_style)
         })
         .collect();
     
-    let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(title));
+    let border_style = if is_active {
+        Style::default().fg(Color::Green)
+    } else {
+        Style::default()
+    };
+    
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(border_style)
+            .title(title)
+    );
     
     f.render_stateful_widget(list, area, &mut app.group_list_state);
 }
 
 fn draw_hosts_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
     let is_search_mode = app.input_mode == InputMode::Search;
+    let is_active = app.active_panel == ActivePanel::Hosts;
     let title = if is_search_mode {
         format!(
             " {} Search: {} Results ({} matches) ",
-            if app.active_panel == ActivePanel::Hosts { ">" } else { " " },
+            if is_active { ">" } else { " " },
             app.search_query,
             app.filtered_hosts.len()
         )
     } else {
         format!(
-            " {} Hosts ",
-            if app.active_panel == ActivePanel::Hosts { ">" } else { " " }
+            " {} 👤 Hosts ",
+            if is_active { ">" } else { " " }
         )
     };
     
@@ -134,24 +159,27 @@ fn draw_hosts_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
                 
                 let prefix = if is_selected { "> " } else { "  " };
                 
-                let base_style = if is_selected {
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(Color::Green)
-                        .add_modifier(Modifier::BOLD)
+                let (text_style, bg_style) = if is_selected {
+                    (
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
+                        Style::default().bg(Color::Green)
+                    )
                 } else {
-                    Style::default().fg(Color::White)
+                    (Style::default().fg(Color::White), Style::default())
                 };
                 
-                let mut spans = vec![Span::styled(prefix, base_style)];
+                let mut spans = vec![Span::styled(prefix, text_style)];
                 
                 // Add host number
                 spans.push(Span::styled(
                     format!("[{}] ", i + 1),
-                    base_style.add_modifier(Modifier::BOLD)
+                    text_style.add_modifier(Modifier::BOLD).fg(Color::LightYellow)
                 ));
                 
-                // Highlight search query in alias if in search mode
+                // Add host alias with search highlighting if in search mode
                 if is_search_mode && !app.search_query.is_empty() {
                     let alias_lower = host.alias.to_lowercase();
                     let query_lower = app.search_query.to_lowercase();
@@ -162,35 +190,42 @@ fn draw_hosts_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
                         if match_start > 0 {
                             spans.push(Span::styled(
                                 host.alias[..match_start].to_string(),
-                                base_style
+                                text_style
                             ));
                         }
                         
                         // Add matched text with highlight
                         spans.push(Span::styled(
                             host.alias[match_start..match_start + query_lower.len()].to_string(),
-                            base_style.bg(Color::Yellow).fg(Color::Black)
+                            Style::default()
+                                .bg(Color::Yellow)
+                                .fg(Color::Black)
+                                .add_modifier(Modifier::BOLD)
                         ));
                         
-                        start = match_start + query_lower.len();
-                    }
-                    
-                    // Add remaining text
-                    if start < host.alias.len() {
-                        spans.push(Span::styled(
-                            host.alias[start..].to_string(),
-                            base_style
-                        ));
+                        // Add remaining text after match
+                        let remaining_start = match_start + query_lower.len();
+                        if remaining_start < host.alias.len() {
+                            spans.push(Span::styled(
+                                host.alias[remaining_start..].to_string(),
+                                text_style
+                            ));
+                        }
+                    } else {
+                        // No match found, just add the alias
+                        spans.push(Span::styled(host.alias.clone(), text_style));
                     }
                 } else {
-                    spans.push(Span::styled(host.alias.clone(), base_style));
+                    // Not in search mode, just add the alias
+                    spans.push(Span::styled(host.alias.clone(), text_style));
                 }
-                
-                // Add connection details
+
+                // Add host details
                 let details = format!(" ({}@{}:{})", host.user, host.host, host.port.unwrap_or(22));
-                spans.push(Span::styled(details, base_style.fg(Color::Gray)));
+                spans.push(Span::styled(details, text_style.fg(Color::Gray)));
                 
-                ListItem::new(Line::from(spans))
+                let item_text = Line::from(spans);
+                ListItem::new(item_text).style(bg_style)
             })
         })
         .collect();
@@ -211,6 +246,8 @@ fn draw_hosts_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
     
     let border_style = if is_search_mode {
         Style::default().fg(Color::Yellow)
+    } else if is_active {
+        Style::default().fg(Color::Green)
     } else {
         Style::default()
     };
