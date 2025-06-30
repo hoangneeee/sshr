@@ -8,7 +8,8 @@ use ratatui::{
 };
 use std::time::SystemTime;
 
-use crate::app::{App, InputMode};
+use crate::app::{App, InputMode, AppKeymapExt};
+use crate::models::SshHost;
 use crate::ui::{footer::draw_footer, status_bar::draw_status_bar};
 
 pub fn draw<B: Backend>(f: &mut Frame, app: &mut App) {
@@ -75,24 +76,61 @@ fn draw_hosts_list<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
 
     let list_items: Vec<ListItem> = match app.input_mode {
         InputMode::Normal => {
-            app.hosts
-                .iter()
-                .enumerate()
-                .map(|(i, host)| {
-                    let is_selected = i == app.selected;
-
-                    // Build the host display text
+            // Group hosts by their group name (or "Ungrouped" if none)
+            use std::collections::BTreeMap;
+            let mut groups: BTreeMap<String, Vec<&SshHost>> = BTreeMap::new();
+            
+            // Group hosts by their group
+            for host in &app.hosts {
+                let group_name = host.group.as_deref().unwrap_or("Ungrouped").to_string();
+                groups.entry(group_name).or_default().push(host);
+            }
+            
+            // Update app groups
+            app.groups = groups.keys().cloned().collect();
+            
+            let mut items = Vec::new();
+            let mut global_index = 0;
+            
+            // Add each group with its hosts
+            for (group_name, hosts) in groups {
+                let is_collapsed = app.collapsed_groups.contains(&group_name);
+                let is_current_group = app.get_current_group() == Some(&group_name[..]);
+                
+                // Add group header with collapse indicator
+                let header = if is_collapsed {
+                    format!("▶ [{}] (collapsed)", group_name)
+                } else {
+                    format!("▼ [{}]", group_name)
+                };
+                
+                let header_style = if is_current_group {
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Cyan)
+                };
+                
+                items.push(ListItem::new(Line::from(Span::styled(header, header_style))));
+                
+                // Skip hosts if group is collapsed
+                if is_collapsed {
+                    continue;
+                }
+                
+                // Add hosts in this group
+                for (local_index, host) in hosts.iter().enumerate() {
+                    let is_selected = global_index == app.selected;
                     let mut text = vec![];
 
-                    // Add selection indicator
+                    // Add selection indicator with indentation
                     text.push(Span::styled(
-                        if is_selected { "> " } else { "  " },
+                        if is_selected { "  > " } else { "    " },
                         Style::default().fg(Color::Green),
                     ));
 
                     // Add host number
                     text.push(Span::styled(
-                        format!("[{}] ", i + 1),
+                        format!("[{}] ", global_index + 1),
                         Style::default().fg(Color::Yellow),
                     ));
 
@@ -112,21 +150,6 @@ fn draw_hosts_list<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
                         }),
                     ));
 
-                    // Add group if exists
-                    if let Some(group) = &host.group {
-                        text.push(Span::raw(" "));
-                        text.push(Span::styled(
-                            format!("[Group: {}]", group),
-                            Style::default()
-                                .fg(if is_selected {
-                                    Color::Black
-                                } else {
-                                    Color::Gray
-                                })
-                                .add_modifier(Modifier::DIM),
-                        ));
-                    }
-
                     let style = if is_selected {
                         Style::default()
                             .bg(Color::Green)
@@ -135,9 +158,15 @@ fn draw_hosts_list<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
                         Style::default()
                     };
 
-                    ListItem::new(Line::from(text)).style(style)
-                })
-                .collect()
+                    items.push(ListItem::new(Line::from(text)).style(style));
+                    global_index += 1;
+                }
+                
+                // Add empty line between groups
+                // items.push(ListItem::new(""));
+            }
+            
+            items
         }
         InputMode::Search => {
             app.filtered_hosts
@@ -202,9 +231,9 @@ fn draw_hosts_list<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
     };
 
     let list = List::new(list_items)
-        .block(block)
-        .highlight_symbol(">")
-        .highlight_style(Style::default().add_modifier(Modifier::BOLD));
+        .block(block);
+        // .highlight_symbol(">")
+        // .highlight_style(Style::default().add_modifier(Modifier::BOLD));
 
     f.render_stateful_widget(list, area, &mut app.host_list_state);
 }

@@ -217,6 +217,19 @@ async fn handle_key_events<B: ratatui::backend::Backend>(
                 // Enter search mode
                 app.enter_search_mode();
             }
+            KeyCode::Tab => {
+                if key_event.modifiers.contains(KeyModifiers::SHIFT) {
+                    app.handle_shift_tab()?;
+                } else {
+                    app.handle_key_tab()?;
+                }
+            }
+            KeyCode::Right => {
+                app.handle_key_right()?;
+            }
+            KeyCode::Left => {
+                app.handle_key_left()?;
+            }
             KeyCode::Char('f') => {
                 // Enter SFTP mode
                 app.enter_sftp_mode(terminal)?;

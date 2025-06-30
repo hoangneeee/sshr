@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use crate::app_event::{SftpEvent, SshEvent};
 use ratatui::{backend::Backend, widgets::ListState, Terminal};
 use std::path::PathBuf;
-use std::{fs, thread};
+use std::{thread};
 use ui::hosts_list::draw;
 
 use crate::app::{App, InputMode};
@@ -56,6 +56,12 @@ impl Default for App {
             search_query: String::new(),
             filtered_hosts: Vec::new(),
             search_selected: 0,
+
+            // Group State
+            collapsed_groups: std::collections::HashSet::new(),
+            current_group_index: 0,
+            groups: Vec::new(),
+
             host_list_state: ListState::default(),
         }
     }
@@ -477,7 +483,7 @@ impl App {
     }
 
     // Process SFTP events from channel
-    pub fn process_sftp_events<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<bool> {
+    pub fn process_sftp_events<B: Backend>(&mut self, _terminal: &mut Terminal<B>) -> Result<bool> {
         if let Some(receiver) = &self.sftp_receiver {
             // Non-blocking receive
             if let Ok(event) = receiver.try_recv() {

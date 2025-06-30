@@ -42,5 +42,10 @@ pub struct App {
     pub filtered_hosts: Vec<usize>, // Indices of filtered hosts
     pub search_selected: usize,
 
+    // Group State
+    pub collapsed_groups: std::collections::HashSet<String>,
+    pub current_group_index: usize,
+    pub groups: Vec<String>,
+
     pub host_list_state: ListState,
 }
