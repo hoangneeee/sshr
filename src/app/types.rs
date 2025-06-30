@@ -13,7 +13,7 @@ pub enum ActivePanel {
     Hosts,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum InputMode {
     Normal,
     Search,
