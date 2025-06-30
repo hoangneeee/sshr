@@ -4,9 +4,14 @@ use crate::sftp_logic::AppSftpState;
 use crate::{config::ConfigManager, models::SshHost};
 
 use crate::app_event::{SftpEvent, SshEvent};
-use ratatui::{widgets::ListState};
-use std::sync::mpsc::{Receiver};
+use ratatui::widgets::ListState;
+use std::sync::mpsc::Receiver;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ActivePanel {
+    Groups,
+    Hosts,
+}
 
 #[derive(Debug)]
 pub enum InputMode {
@@ -19,7 +24,9 @@ pub enum InputMode {
 pub struct App {
     pub should_quit: bool,
     pub hosts: Vec<SshHost>,
-    pub selected: usize,
+    pub selected_host: usize,
+    pub selected_group: usize,
+    pub active_panel: ActivePanel,
     pub ssh_config_path: PathBuf,
     pub config_manager: ConfigManager,
     pub input_mode: InputMode,
@@ -43,9 +50,10 @@ pub struct App {
     pub search_selected: usize,
 
     // Group State
-    pub collapsed_groups: std::collections::HashSet<String>,
-    pub current_group_index: usize,
     pub groups: Vec<String>,
+    pub hosts_in_current_group: Vec<usize>,
+
 
     pub host_list_state: ListState,
+    pub group_list_state: ListState,
 }

@@ -1,9 +1,10 @@
+use crate::app::App;
 use crate::config::ConfigManager;
 use crate::models::SshHost;
 use crate::sftp_logic::AppSftpState;
 use crate::ui;
 use anyhow::{Context, Result};
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
@@ -18,7 +19,7 @@ use std::path::PathBuf;
 use std::{thread};
 use ui::hosts_list::draw;
 
-use crate::app::{App, InputMode};
+use crate::app::types::{ActivePanel, InputMode};
 
 impl Default for App {
     fn default() -> Self {
@@ -37,7 +38,9 @@ impl Default for App {
         Self {
             should_quit: false,
             hosts: Vec::new(),
-            selected: 0,
+            selected_host: 0,
+            selected_group: 0,
+            active_panel: ActivePanel::Groups,
             ssh_config_path,
             config_manager,
             input_mode: InputMode::Normal,
@@ -58,11 +61,11 @@ impl Default for App {
             search_selected: 0,
 
             // Group State
-            collapsed_groups: std::collections::HashSet::new(),
-            current_group_index: 0,
             groups: Vec::new(),
+            hosts_in_current_group: Vec::new(),
 
             host_list_state: ListState::default(),
+            group_list_state: ListState::default(),
         }
     }
 }
@@ -71,7 +74,7 @@ impl App {
     pub fn new() -> Result<Self> {
         let mut app = Self::default();
         app.load_all_hosts().context("Failed to load hosts")?;
-        app.host_list_state.select(Some(app.selected));
+        app.host_list_state.select(Some(app.selected_host));
         Ok(app)
     }
 
@@ -80,23 +83,90 @@ impl App {
         self.status_message = None;
     }
 
-    // Improve navigation
-    pub fn select_next(&mut self) {
-        if self.hosts.is_empty() {
+    pub fn switch_panel(&mut self) {
+        self.active_panel = match self.active_panel {
+            ActivePanel::Groups => ActivePanel::Hosts,
+            ActivePanel::Hosts => ActivePanel::Groups,
+        };
+    }
+
+    pub fn update_hosts_for_selected_group(&mut self) {
+        if self.groups.is_empty() {
+            self.hosts_in_current_group.clear();
             return;
         }
-        let total_hosts = self.hosts.len();
-        self.selected = (self.selected + 1) % total_hosts;
-        self.host_list_state.select(Some(self.selected));
+
+        let current_group = &self.groups[self.selected_group];
+        self.hosts_in_current_group = self.hosts
+            .iter()
+            .enumerate()
+            .filter_map(|(i, host)| {
+                let group_name = host.group.as_deref().unwrap_or("Ungrouped");
+                if group_name == current_group {
+                    Some(i)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Reset selected host when group changes
+        if !self.hosts_in_current_group.is_empty() {
+            self.selected_host = 0;
+            self.host_list_state.select(Some(0));
+        } else {
+            self.selected_host = 0;
+            self.host_list_state.select(None);
+        }
+    }
+
+    pub fn get_current_host(&self) -> Option<&SshHost> {
+        self.hosts_in_current_group
+            .get(self.selected_host)
+            .and_then(|&idx| self.hosts.get(idx))
+    }
+
+    // Improve navigation
+    pub fn select_next(&mut self) {
+        match self.active_panel {
+            ActivePanel::Groups => {
+                if self.groups.is_empty() {
+                    return;
+                }
+                self.selected_group = (self.selected_group + 1) % self.groups.len();
+                self.group_list_state.select(Some(self.selected_group));
+                self.update_hosts_for_selected_group();
+            }
+            ActivePanel::Hosts => {
+                if self.hosts_in_current_group.is_empty() {
+                    return;
+                }
+                self.selected_host = (self.selected_host + 1) % self.hosts_in_current_group.len();
+                self.host_list_state.select(Some(self.selected_host));
+            }
+        }
     }
 
     pub fn select_previous(&mut self) {
-        if self.hosts.is_empty() {
-            return;
+        match self.active_panel {
+            ActivePanel::Groups => {
+                if self.groups.is_empty() {
+                    return;
+                }
+                let total = self.groups.len();
+                self.selected_group = (self.selected_group + total - 1) % total;
+                self.group_list_state.select(Some(self.selected_group));
+                self.update_hosts_for_selected_group();
+            }
+            ActivePanel::Hosts => {
+                if self.hosts_in_current_group.is_empty() {
+                    return;
+                }
+                let total = self.hosts_in_current_group.len();
+                self.selected_host = (self.selected_host + total - 1) % total;
+                self.host_list_state.select(Some(self.selected_host));
+            }
         }
-        let total_hosts = self.hosts.len();
-        self.selected = (self.selected + total_hosts - 1) % total_hosts;
-        self.host_list_state.select(Some(self.selected));
     }
 
     fn transition_to_ssh_mode<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
@@ -330,7 +400,7 @@ impl App {
         }
 
         match self.input_mode {
-            InputMode::Normal => self.host_list_state.select(Some(self.selected)),
+            InputMode::Normal => self.host_list_state.select(Some(self.selected_host)),
             InputMode::Search => self.host_list_state.select(Some(self.search_selected)),
             InputMode::Sftp => {}
         }
@@ -386,7 +456,8 @@ impl App {
         self.input_mode = InputMode::Normal;
         self.filtered_hosts = (0..self.hosts.len()).collect();
         self.search_selected = 0;
-        self.host_list_state.select(Some(self.selected));
+        self.selected_host = self.selected_host.saturating_sub(1);
+        self.host_list_state.select(Some(self.selected_host));
     }
 
     // Enter search mode
