@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
     Frame,
 };
 use std::time::SystemTime;
@@ -227,24 +227,139 @@ fn draw_hosts_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
 
 fn draw_enhanced_loading_overlay<B: Backend>(f: &mut Frame, app: &App) {
     let area = centered_rect(60, 10, f.size());
+
+    // Get current time for animation
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+
+    // Create animated dots
+    let dots_count = (now / 500) % 4;
+    let dots = ".".repeat(dots_count as usize);
+    let padding = " ".repeat(3 - dots_count as usize);
+
+
+    // Get status message or default
+    let status_text = if let Some((msg, _)) = &app.status_message {
+        msg.clone()
+    } else {
+        "Connecting".to_string()
+    };
+
+    // Create loading content with animation
+    let loading_content = if app.is_sftp_loading {
+        let status_text = if let Some((msg, _)) = &app.status_message {
+            msg.clone()
+        } else {
+            "Initializing SFTP".to_string()
+        };
+        vec![
+            Line::from(vec![
+                Span::styled("🔄 ", Style::default().fg(Color::Yellow)),
+                Span::styled(
+                    "SFTP Initialization",
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("📡 ", Style::default().fg(Color::Blue)),
+                Span::styled(
+                    format!("{}{}", status_text, dots),
+                    Style::default().fg(Color::Cyan),
+                ),
+                Span::raw(padding),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("💡 ", Style::default().fg(Color::Yellow)),
+                Span::styled(
+                    "Please wait...",
+                    Style::default().fg(Color::Gray).add_modifier(Modifier::DIM),
+                ),
+            ]),
+        ]
+    } else if let Some(host) = app.get_selected_host() {
+        vec![
+            Line::from(vec![
+                Span::styled("🔗 ", Style::default().fg(Color::Yellow)),
+                Span::styled(
+                    format!("SSH Connection to {}", host.alias),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("📡 ", Style::default().fg(Color::Blue)),
+                Span::styled(
+                    format!("{}{}", status_text, dots),
+                    Style::default().fg(Color::Cyan),
+                ),
+                Span::raw(padding),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("Host: ", Style::default().fg(Color::Gray)),
+                Span::styled(
+                    format!("{}@{}:{}", host.user, host.host, host.port.unwrap_or(22)),
+                    Style::default().fg(Color::Green),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("💡 ", Style::default().fg(Color::Yellow)),
+                Span::styled(
+                    "Press Ctrl+C to cancel",
+                    Style::default().fg(Color::Gray).add_modifier(Modifier::DIM),
+                ),
+            ]),
+        ]
+    } else {
+        vec![
+            Line::from(vec![
+                Span::styled("🔗 ", Style::default().fg(Color::Yellow)),
+                Span::styled(
+                    "SSH Connection",
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled(
+                    format!("{}{}", status_text, dots),
+                    Style::default().fg(Color::Cyan),
+                ),
+                Span::raw(padding),
+            ]),
+        ]
+    };
+
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Connecting... ")
-        .style(Style::default().bg(Color::Black).fg(Color::White));
+        .title(" SSH Manager ")
+        .title_style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
+        .border_style(Style::default().fg(Color::Yellow));
 
-    let text = vec![
-        Line::from("Establishing connection..."),
-        Line::from(""),
-        Line::from(format!("Host: {}", app.get_current_host().map(|h| h.alias.clone()).unwrap_or_default())),
-    ];
-
-    let paragraph = Paragraph::new(text)
+    let paragraph = Paragraph::new(loading_content)
         .block(block)
         .alignment(ratatui::layout::Alignment::Center);
 
+    // Clear the area và render loading overlay
+    f.render_widget(Clear, area);
     f.render_widget(paragraph, area);
 }
-
+    
 fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {
     let popup_layout = Layout::default()
         .direction(Direction::Vertical)

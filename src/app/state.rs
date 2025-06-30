@@ -88,6 +88,14 @@ impl App {
             ActivePanel::Groups => ActivePanel::Hosts,
             ActivePanel::Hosts => ActivePanel::Groups,
         };
+
+        tracing::info!("Switched to {:?} panel", self.active_panel);
+
+        // When switching to Hosts panel, ensure selected_host is within bounds
+        if self.active_panel == ActivePanel::Hosts && !self.hosts_in_current_group.is_empty() {
+            self.selected_host = std::cmp::min(self.selected_host, self.hosts_in_current_group.len().saturating_sub(1));
+            self.host_list_state.select(Some(self.selected_host));
+        }
     }
 
     pub fn update_hosts_for_selected_group(&mut self) {
@@ -142,6 +150,7 @@ impl App {
                     return;
                 }
                 self.selected_host = (self.selected_host + 1) % self.hosts_in_current_group.len();
+                tracing::info!("Selected host: {}", self.selected_host);
                 self.host_list_state.select(Some(self.selected_host));
             }
         }
@@ -164,6 +173,7 @@ impl App {
                 }
                 let total = self.hosts_in_current_group.len();
                 self.selected_host = (self.selected_host + total - 1) % total;
+                tracing::info!("Selected host: {}", self.selected_host);
                 self.host_list_state.select(Some(self.selected_host));
             }
         }
@@ -406,15 +416,14 @@ impl App {
         }
     }
 
-    // pub fn get_filtered_host(&self, index: usize) -> Option<&SshHost> {
-    //     self.filtered_hosts
-    //         .get(index)
-    //         .and_then(|&host_index| self.hosts.get(host_index))
-    // }
-
     pub fn get_current_selected_host(&self) -> Option<&SshHost> {
         match self.input_mode {
-            InputMode::Normal => self.get_selected_host(),
+            InputMode::Normal => {
+                // In normal mode, use the filtered hosts_in_current_group
+                self.hosts_in_current_group
+                    .get(self.selected_host)
+                    .and_then(|&idx| self.hosts.get(idx))
+            }
             InputMode::Search => {
                 if let Some(&host_index) = self.filtered_hosts.get(self.search_selected) {
                     self.hosts.get(host_index)
