@@ -1,5 +1,5 @@
 use crate::app::ActivePanel;
-use crate::app::{keymap_ext::AppKeymapExt, App, InputMode};
+use crate::app::{App, InputMode};
 use crate::app_event::SshEvent;
 use anyhow::Result;
 use ratatui::backend::Backend;
