@@ -20,6 +20,13 @@ pub enum InputMode {
     Sftp,
 }
 
+#[derive(Debug, Clone)]
+pub struct FilteredHost {
+    pub original_index: usize,
+    pub score: i64,
+    pub matched_indices: Vec<usize>,
+}
+
 #[derive(Debug)]
 pub struct App {
     pub should_quit: bool,
@@ -46,7 +53,7 @@ pub struct App {
 
     // Search Mode
     pub search_query: String,
-    pub filtered_hosts: Vec<usize>, // Indices of filtered hosts
+    pub filtered_hosts: Vec<FilteredHost>, // Indices of filtered hosts
     pub search_selected: usize,
 
     // Group State

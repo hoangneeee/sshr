@@ -10,10 +10,6 @@ use std::time::Instant;
 
 impl App {
     // Group navigation and management
-    pub fn toggle_current_group(&mut self) {
-        // Implementation removed as per user's previous edit
-    }
-
     pub fn next_group(&mut self) {
         if !self.groups.is_empty() {
             self.selected_group = (self.selected_group + 1) % self.groups.len();

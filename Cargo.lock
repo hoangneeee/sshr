@@ -424,6 +424,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05f29059c0c2090612e8d742178b0580d2dc940c837851ad723096f87af6663e"
 
 [[package]]
+name = "fuzzy-matcher"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54614a3312934d066701a80f20f15fa3b56d67ac7722b39eea5b4c9dd1d66c94"
+dependencies = [
+ "thread_local",
+]
+
+[[package]]
 name = "gethostname"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1125,7 +1134,7 @@ dependencies = [
 
 [[package]]
 name = "sshr"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "arboard",
@@ -1133,6 +1142,7 @@ dependencies = [
  "clap",
  "crossterm",
  "dirs",
+ "fuzzy-matcher",
  "open",
  "ratatui",
  "serde",

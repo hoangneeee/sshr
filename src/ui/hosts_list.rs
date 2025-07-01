@@ -2,7 +2,7 @@ use ratatui::{
     backend::Backend,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
-    text::{Line, Span, Text},
+    text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
     Frame,
 };
@@ -89,7 +89,7 @@ fn draw_groups_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
                 (Style::default().fg(Color::White), Style::default())
             };
             
-            let mut spans = vec![
+            let spans = vec![
                 Span::styled(prefix, text_style),
                 Span::styled(
                     format!("[{}] {}", i + 1, group),
@@ -125,108 +125,139 @@ fn draw_groups_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
 fn draw_hosts_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
     let is_search_mode = app.input_mode == InputMode::Search;
     let is_active = app.active_panel == ActivePanel::Hosts;
-    let title = if is_search_mode {
-        format!(
-            " {} Search: {} Results ({} matches) ",
+
+    let (list_area, list_border_style, list_title) = if is_search_mode {
+        // --- Search Mode UI ---
+        let search_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3), // Search input area
+                Constraint::Min(0),    // Search results area
+            ].as_ref())
+            .split(area);
+
+        // Draw search input box
+        let search_title = " 🔍 Search (Press 'Esc' to exit) ";
+        let search_block = Block::default()
+            .borders(Borders::ALL)
+            .title(search_title)
+            .border_style(Style::default().fg(Color::Yellow));
+        
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let cursor = if now % 1000 < 500 { "█" } else { " " };
+
+        let search_text = format!("{} {}", app.search_query, cursor);
+        let search_paragraph = Paragraph::new(search_text)
+            .style(Style::default().fg(Color::White))
+            .block(search_block);
+        
+        f.render_widget(search_paragraph, search_chunks[0]);
+
+        let results_title = format!(
+            " {} Results ({} matches) ",
             if is_active { ">" } else { " " },
-            app.search_query,
             app.filtered_hosts.len()
+        );
+
+        (
+            search_chunks[1],
+            Style::default().fg(Color::Yellow),
+            results_title,
         )
     } else {
-        format!(
-            " {} 👤 Hosts ",
-            if is_active { ">" } else { " " }
+        // --- Normal Mode UI ---
+        (
+            area,
+            if is_active { Style::default().fg(Color::Green) } else { Style::default() },
+            format!(" {} 👤 Hosts ", if is_active { ">" } else { " " }),
         )
     };
-    
-    // Get the appropriate list of hosts to display
+
+    // --- Common List Rendering ---
     let hosts_to_display = if is_search_mode {
-        &app.filtered_hosts
+        app.filtered_hosts
+            .iter()
+            .map(|fh| (fh.clone(), app.hosts.get(fh.original_index).unwrap().clone()))
+            .collect::<Vec<_>>()
     } else {
-        &app.hosts_in_current_group
+        app.hosts_in_current_group
+            .iter()
+            .map(|&idx| {
+                let host = app.hosts.get(idx).unwrap().clone();
+                let filtered_host = crate::app::FilteredHost {
+                    original_index: idx,
+                    score: 0,
+                    matched_indices: vec![],
+                };
+                (filtered_host, host)
+            })
+            .collect::<Vec<_>>()
     };
     
     let items: Vec<ListItem> = hosts_to_display
         .iter()
         .enumerate()
-        .filter_map(|(i, &host_idx)| {
-            app.hosts.get(host_idx).map(|host| {
-                let is_selected = if is_search_mode {
-                    i == app.search_selected && app.active_panel == ActivePanel::Hosts
-                } else {
-                    i == app.selected_host && app.active_panel == ActivePanel::Hosts
-                };
-                
-                let prefix = if is_selected { "> " } else { "  " };
-                
-                let (text_style, bg_style) = if is_selected {
-                    (
-                        Style::default()
-                            .fg(Color::Black)
-                            .bg(Color::Green)
-                            .add_modifier(Modifier::BOLD),
-                        Style::default().bg(Color::Green)
-                    )
-                } else {
-                    (Style::default().fg(Color::White), Style::default())
-                };
-                
-                let mut spans = vec![Span::styled(prefix, text_style)];
-                
-                // Add host number
-                spans.push(Span::styled(
-                    format!("[{}] ", i + 1),
-                    text_style.add_modifier(Modifier::BOLD).fg(Color::LightYellow)
-                ));
-                
-                // Add host alias with search highlighting if in search mode
-                if is_search_mode && !app.search_query.is_empty() {
-                    let alias_lower = host.alias.to_lowercase();
-                    let query_lower = app.search_query.to_lowercase();
-                    let mut start = 0;
-                    
-                    if let Some(match_start) = alias_lower.find(&query_lower) {
-                        // Add text before match
-                        if match_start > 0 {
-                            spans.push(Span::styled(
-                                host.alias[..match_start].to_string(),
-                                text_style
-                            ));
+        .map(|(i, (filtered_host, host))| {
+            let is_selected = if is_search_mode {
+                i == app.search_selected && app.active_panel == ActivePanel::Hosts
+            } else {
+                i == app.selected_host && app.active_panel == ActivePanel::Hosts
+            };
+            
+            let prefix = if is_selected { "> " } else { "  " };
+            
+            let (text_style, bg_style) = if is_selected {
+                (
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(if is_search_mode { Color::Yellow } else { Color::Green })
+                        .add_modifier(Modifier::BOLD),
+                    Style::default().bg(if is_search_mode { Color::Yellow } else { Color::Green })
+                )
+            } else {
+                (Style::default().fg(Color::White), Style::default())
+            };
+            
+            let mut spans = vec![Span::styled(prefix, text_style)];
+            
+            // Add host number
+            spans.push(Span::styled(
+                format!("[{}] ", i + 1),
+                text_style.add_modifier(Modifier::BOLD).fg(if is_selected { Color::Black } else { Color::LightYellow })
+            ));
+            
+            // Add host alias with search highlighting if in search mode
+            if is_search_mode && !app.search_query.is_empty() {
+                let mut last_idx = 0;
+                for (idx, char) in host.alias.chars().enumerate() {
+                    if filtered_host.matched_indices.contains(&idx) {
+                        if idx > last_idx {
+                            spans.push(Span::styled(&host.alias[last_idx..idx], text_style));
                         }
-                        
-                        // Add matched text with highlight
                         spans.push(Span::styled(
-                            host.alias[match_start..match_start + query_lower.len()].to_string(),
-                            Style::default()
-                                .bg(Color::Yellow)
-                                .fg(Color::Black)
-                                .add_modifier(Modifier::BOLD)
+                            char.to_string(),
+                            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                         ));
-                        
-                        // Add remaining text after match
-                        let remaining_start = match_start + query_lower.len();
-                        if remaining_start < host.alias.len() {
-                            spans.push(Span::styled(
-                                host.alias[remaining_start..].to_string(),
-                                text_style
-                            ));
-                        }
-                    } else {
-                        // No match found, just add the alias
-                        spans.push(Span::styled(host.alias.clone(), text_style));
+                        last_idx = idx + 1;
                     }
-                } else {
-                    // Not in search mode, just add the alias
-                    spans.push(Span::styled(host.alias.clone(), text_style));
                 }
+                if last_idx < host.alias.len() {
+                    spans.push(Span::styled(&host.alias[last_idx..], text_style));
+                }
+            } else {
+                // Not in search mode, just add the alias
+                spans.push(Span::styled(host.alias.clone(), text_style));
+            }
 
-                // Add host details
-                let details = format!(" ({}@{}:{})", host.user, host.host, host.port.unwrap_or(22));
-                spans.push(Span::styled(details, text_style.fg(Color::Gray)));
-                
-                let item_text = Line::from(spans);
-                ListItem::new(item_text).style(bg_style)
-            })
+            // Add host details
+            let details = format!(" ({}@{}:{})", host.user, host.host, host.port.unwrap_or(22));
+            spans.push(Span::styled(details, text_style.fg(Color::Gray)));
+            
+            let item_text = Line::from(spans);
+            ListItem::new(item_text).style(bg_style)
         })
         .collect();
     
@@ -244,22 +275,14 @@ fn draw_hosts_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
         List::new(items)
     };
     
-    let border_style = if is_search_mode {
-        Style::default().fg(Color::Yellow)
-    } else if is_active {
-        Style::default().fg(Color::Green)
-    } else {
-        Style::default()
-    };
+    let list_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(list_border_style)
+        .title(list_title);
     
-    let list = list.block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(border_style)
-            .title(title)
-    );
+    let list_widget = list.block(list_block);
     
-    f.render_stateful_widget(list, area, &mut app.host_list_state);
+    f.render_stateful_widget(list_widget, list_area, &mut app.host_list_state);
 }
 
 fn draw_enhanced_loading_overlay<B: Backend>(f: &mut Frame, app: &App) {
