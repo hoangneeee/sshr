@@ -22,7 +22,7 @@ SSHR is a TUI (Text User Interface) application for managing and connecting to h
 
 ## 🖥️ UI Preview
 
-![image](./docs/preview_1.png)
+![image](./docs/preview_2.png)
 
 ## 🚀 Quick Start
 
