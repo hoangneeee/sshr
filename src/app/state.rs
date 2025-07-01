@@ -4,12 +4,14 @@ use crate::models::SshHost;
 use crate::sftp_logic::AppSftpState;
 use crate::ui;
 use anyhow::{Context, Result};
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use fuzzy_matcher::skim::SkimMatcherV2;
+use fuzzy_matcher::FuzzyMatcher;
 use std::sync::mpsc::{self, Sender};
 use std::time::{Duration, Instant};
 
@@ -19,7 +21,7 @@ use std::path::PathBuf;
 use std::{thread};
 use ui::hosts_list::draw;
 
-use crate::app::types::{ActivePanel, InputMode};
+use crate::app::types::{ActivePanel, FilteredHost, InputMode};
 
 impl Default for App {
     fn default() -> Self {
@@ -386,39 +388,41 @@ impl App {
     // Search logic
     pub fn filter_hosts(&mut self) {
         if self.search_query.is_empty() {
-            self.filtered_hosts = (0..self.hosts.len()).collect();
+            self.filtered_hosts.clear();
         } else {
-            self.filtered_hosts = self
+            let matcher = SkimMatcherV2::default();
+            let query = &self.search_query;
+
+            let mut results: Vec<FilteredHost> = self
                 .hosts
                 .iter()
                 .enumerate()
-                .filter(|(_, host)| {
-                    host.alias
-                        .to_lowercase()
-                        .contains(&self.search_query.to_lowercase())
-                        || host
-                            .host
-                            .to_lowercase()
-                            .contains(&self.search_query.to_lowercase())
-                        || host
-                            .user
-                            .to_lowercase()
-                            .contains(&self.search_query.to_lowercase())
+                .filter_map(|(idx, host)| {
+                    let full_string = format!(
+                        "{} {} {} {}",
+                        host.alias,
+                        host.user,
+                        host.host,
+                        host.group.as_deref().unwrap_or("")
+                    );
+                    matcher
+                        .fuzzy_indices(&full_string, query)
+                        .map(|(score, indices)| FilteredHost {
+                            original_index: idx,
+                            score,
+                            matched_indices: indices,
+                        })
                 })
-                .map(|(i, _)| i)
                 .collect();
+
+            results.sort_by(|a, b| b.score.cmp(&a.score));
+            self.filtered_hosts = results;
         }
 
-        // Reset selection if current selection is out of bounds
         if self.search_selected >= self.filtered_hosts.len() {
-            self.search_selected = 0;
+            self.search_selected = self.filtered_hosts.len().saturating_sub(1);
         }
-
-        match self.input_mode {
-            InputMode::Normal => self.host_list_state.select(Some(self.selected_host)),
-            InputMode::Search => self.host_list_state.select(Some(self.search_selected)),
-            InputMode::Sftp => {}
-        }
+        self.host_list_state.select(Some(self.search_selected));
     }
 
     pub fn get_current_selected_host(&self) -> Option<&SshHost> {
@@ -430,8 +434,8 @@ impl App {
                     .and_then(|&idx| self.hosts.get(idx))
             }
             InputMode::Search => {
-                if let Some(&host_index) = self.filtered_hosts.get(self.search_selected) {
-                    self.hosts.get(host_index)
+                if let Some(filtered_host) = self.filtered_hosts.get(self.search_selected) {
+                    self.hosts.get(filtered_host.original_index)
                 } else {
                     None
                 }
@@ -442,24 +446,27 @@ impl App {
 
     pub fn search_select_next(&mut self) {
         if self.filtered_hosts.is_empty() {
+            self.search_selected = 0;
             return;
         }
-        if self.search_selected >= self.filtered_hosts.len() - 1 {
-            self.search_selected = 0;
+        let next = self.search_selected + 1;
+        if next < self.filtered_hosts.len() {
+            self.search_selected = next;
         } else {
-            self.search_selected += 1;
+            self.search_selected = 0;
         }
         self.host_list_state.select(Some(self.search_selected));
     }
 
     pub fn search_select_previous(&mut self) {
         if self.filtered_hosts.is_empty() {
+            self.search_selected = 0;
             return;
         }
-        if self.search_selected == 0 {
-            self.search_selected = self.filtered_hosts.len() - 1;
-        } else {
+        if self.search_selected > 0 {
             self.search_selected -= 1;
+        } else {
+            self.search_selected = self.filtered_hosts.len() - 1;
         }
         self.host_list_state.select(Some(self.search_selected));
     }
@@ -468,9 +475,8 @@ impl App {
     pub fn clear_search(&mut self) {
         self.search_query.clear();
         self.input_mode = InputMode::Normal;
-        self.filtered_hosts = (0..self.hosts.len()).collect();
+        self.filtered_hosts.clear();
         self.search_selected = 0;
-        self.selected_host = self.selected_host.saturating_sub(1);
         self.host_list_state.select(Some(self.selected_host));
     }
 
@@ -478,6 +484,7 @@ impl App {
     pub fn enter_search_mode(&mut self) {
         self.input_mode = InputMode::Search;
         self.search_query.clear();
+        self.active_panel = ActivePanel::Hosts;
         self.filter_hosts();
     }
 
@@ -662,3 +669,4 @@ impl App {
         tracing::info!("SFTP thread ending for host: {}", host.alias);
     }
 }
+

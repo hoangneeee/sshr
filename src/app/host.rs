@@ -220,7 +220,7 @@ impl App {
                 InputMode::Search => self
                     .filtered_hosts
                     .get(self.search_selected)
-                    .copied()
+                    .map(|fh| fh.original_index)
                     .unwrap_or(0),
                 InputMode::Sftp => self.selected_host, // SFTP doesn't change overall host selection
             };
