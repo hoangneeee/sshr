@@ -358,6 +358,11 @@ impl App {
                         self.ssh_ready_for_terminal = false;
                         self.ssh_receiver = None;
                         self.status_message = Some((format!("SSH Error: {}", err), Instant::now()));
+                        
+                        // Restore TUI mode when SSH error occurs
+                        if let Err(e) = self.restore_tui_mode(terminal) {
+                            tracing::error!("Failed to restore TUI mode after SSH error: {}", e);
+                        }
                         return Ok(false);
                     }
                     SshEvent::Disconnected => {

@@ -15,7 +15,6 @@ use std::{io, time::Duration};
 use tracing_subscriber::{fmt, EnvFilter};
 
 mod app_event;
-mod cmd;
 mod config;
 mod models;
 mod sftp_logic;
