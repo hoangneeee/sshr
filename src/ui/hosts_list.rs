@@ -342,7 +342,7 @@ fn draw_enhanced_loading_overlay<B: Backend>(f: &mut Frame, app: &App) {
                 ),
             ]),
         ]
-    } else if let Some(host) = app.get_selected_host() {
+    } else if let Some(host) = &app.connecting_host {
         vec![
             Line::from(vec![
                 Span::styled("🔗 ", Style::default().fg(Color::Yellow)),

@@ -42,6 +42,7 @@ pub struct App {
 
     // SSH Mode
     pub is_connecting: bool,
+    pub connecting_host: Option<SshHost>,
     pub ssh_ready_for_terminal: bool,
     pub ssh_receiver: Option<Receiver<SshEvent>>,
 

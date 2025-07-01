@@ -18,11 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-### [0.6.0] - 2025-06-30
+### [0.7.0] - 2025-07-01
+
+### Added
+- Update UI search mode to user friendly
 
 ### Changed / Fixed
-- Update UI v2
-- Fix minor bug
+- Fix bug restore tui when has error in ssh mode
 
 ---
 
