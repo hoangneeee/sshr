@@ -208,23 +208,4 @@ impl App {
         }
         self.hosts = unique_hosts;
     }
-
-    // Get selected host
-    pub fn get_selected_host(&self) -> Option<&SshHost> {
-        if self.hosts.is_empty() {
-            None
-        } else {
-            // Adjust selected index if it's out of bounds after filtering/reloading
-            let current_selected = match self.input_mode {
-                InputMode::Normal => self.selected_host,
-                InputMode::Search => self
-                    .filtered_hosts
-                    .get(self.search_selected)
-                    .map(|fh| fh.original_index)
-                    .unwrap_or(0),
-                InputMode::Sftp => self.selected_host, // SFTP doesn't change overall host selection
-            };
-            self.hosts.get(current_selected)
-        }
-    }
 }

@@ -47,6 +47,7 @@ impl Default for App {
             config_manager,
             input_mode: InputMode::Normal,
             is_connecting: false,
+            connecting_host: None,
             status_message: None,
             // SSH
             ssh_receiver: None,
@@ -95,6 +96,17 @@ impl App {
 
         // When switching to Hosts panel, ensure selected_host is within bounds
         if self.active_panel == ActivePanel::Hosts && !self.hosts_in_current_group.is_empty() {
+            self.selected_host = std::cmp::min(self.selected_host, self.hosts_in_current_group.len().saturating_sub(1));
+            self.host_list_state.select(Some(self.selected_host));
+        }
+    }
+
+    pub fn switch_to_hosts(&mut self) {
+        self.active_panel = ActivePanel::Hosts;
+        tracing::info!("Switched to Hosts panel");
+
+        // When switching to Hosts panel, ensure selected_host is within bounds
+        if !self.hosts_in_current_group.is_empty() {
             self.selected_host = std::cmp::min(self.selected_host, self.hosts_in_current_group.len().saturating_sub(1));
             self.host_list_state.select(Some(self.selected_host));
         }
@@ -357,6 +369,7 @@ impl App {
                     SshEvent::Error(err) => {
                         tracing::error!("SSH error: {}", err);
                         self.is_connecting = false;
+                        self.connecting_host = None;
                         self.ssh_ready_for_terminal = false;
                         self.ssh_receiver = None;
                         self.status_message = Some((format!("SSH Error: {}", err), Instant::now()));
@@ -373,6 +386,7 @@ impl App {
                         // SSH session ended, restore TUI
                         self.restore_tui_mode(terminal)?;
                         self.is_connecting = false;
+                        self.connecting_host = None;
                         self.ssh_ready_for_terminal = false;
                         self.ssh_receiver = None;
                         self.status_message =
@@ -427,19 +441,14 @@ impl App {
 
     pub fn get_current_selected_host(&self) -> Option<&SshHost> {
         match self.input_mode {
-            InputMode::Normal => {
-                // In normal mode, use the filtered hosts_in_current_group
-                self.hosts_in_current_group
-                    .get(self.selected_host)
-                    .and_then(|&idx| self.hosts.get(idx))
-            }
-            InputMode::Search => {
-                if let Some(filtered_host) = self.filtered_hosts.get(self.search_selected) {
-                    self.hosts.get(filtered_host.original_index)
-                } else {
-                    None
-                }
-            }
+            InputMode::Search => self
+                .filtered_hosts
+                .get(self.search_selected)
+                .and_then(|filtered_host| self.hosts.get(filtered_host.original_index)),
+            InputMode::Normal => self
+                .hosts_in_current_group
+                .get(self.selected_host)
+                .and_then(|&idx| self.hosts.get(idx)),
             InputMode::Sftp => None,
         }
     }
@@ -484,7 +493,7 @@ impl App {
     pub fn enter_search_mode(&mut self) {
         self.input_mode = InputMode::Search;
         self.search_query.clear();
-        self.active_panel = ActivePanel::Hosts;
+        self.switch_to_hosts();
         self.filter_hosts();
     }
 

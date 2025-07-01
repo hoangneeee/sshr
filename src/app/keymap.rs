@@ -30,11 +30,18 @@ impl App {
         }
     }
 
+    pub fn get_current_group(&self) -> Option<&str> {
+        self.groups.get(self.selected_group).map(|s| s.as_str())
+    }
+
     // update_hosts_for_selected_group is now implemented in state.rs
     // Handle key
     pub fn handle_key_enter<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
         if let Some(selected_host) = self.get_current_selected_host().cloned() {
             tracing::info!("Enter pressed, selected host: {:?}", selected_host.alias);
+
+            // Store the connecting host
+            self.connecting_host = Some(selected_host.clone());
 
             // Tạo channel để communication
             let (sender, receiver) = mpsc::channel::<SshEvent>();
