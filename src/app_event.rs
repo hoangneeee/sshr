@@ -16,16 +16,14 @@ pub enum SftpEvent {
     #[allow(dead_code)]
     Disconnected,
     Error(String),
-    // ListLocalDone(Vec<crate::models::DirEntry>),
-    // ListRemoteDone(Vec<crate::models::DirEntry>),
-    // ChangeDirDone(String), // New path
-    // UploadStarted(String),
-    // UploadProgress(String, u64, u64),
-    // UploadCompleted(String),
-    // UploadFailed(String, String),
-    // DownloadStarted(String),
-    // DownloadProgress(String, u64, u64),
-    // DownloadCompleted(String),
-    // DownloadFailed(String, String),
-    // StatusUpdate(String),
+}
+
+#[derive(Debug, Clone)]
+pub enum TransferEvent {
+    UploadProgress(String, u64, u64),
+    UploadComplete(String),
+    UploadError(String, String),
+    DownloadProgress(String, u64, u64),
+    DownloadComplete(String),
+    DownloadError(String, String),
 }

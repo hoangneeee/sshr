@@ -3,9 +3,10 @@ use std::path::PathBuf;
 use crate::sftp_logic::AppSftpState;
 use crate::{config::ConfigManager, models::SshHost};
 
-use crate::app_event::{SftpEvent, SshEvent};
+use crate::app_event::{SftpEvent, SshEvent, TransferEvent};
 use ratatui::widgets::ListState;
 use std::sync::mpsc::Receiver;
+use tokio::sync::mpsc as tokio_mpsc;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ActivePanel {
@@ -51,6 +52,7 @@ pub struct App {
     pub sftp_ready_for_terminal: bool,
     pub sftp_receiver: Option<Receiver<SftpEvent>>,
     pub sftp_state: Option<AppSftpState>,
+    pub transfer_receiver: Option<tokio_mpsc::Receiver<TransferEvent>>,
 
     // Search Mode
     pub search_query: String,

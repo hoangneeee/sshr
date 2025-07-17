@@ -1,3 +1,4 @@
+use crate::sftp_logic::types::{UploadProgress, DownloadProgress};
 use crate::app::App;
 use crate::config::ConfigManager;
 use crate::models::SshHost;
@@ -14,11 +15,12 @@ use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use std::sync::mpsc::{self, Sender};
 use std::time::{Duration, Instant};
+use tokio::sync::mpsc as tokio_mpsc;
 
-use crate::app_event::{SftpEvent, SshEvent};
+use crate::app_event::{SftpEvent, SshEvent, TransferEvent};
 use ratatui::{backend::Backend, widgets::ListState, Terminal};
 use std::path::PathBuf;
-use std::{thread};
+use std::thread;
 use ui::hosts_list::draw;
 
 use crate::app::types::{ActivePanel, FilteredHost, InputMode};
@@ -57,6 +59,7 @@ impl Default for App {
             sftp_ready_for_terminal: false,
             is_sftp_loading: false,
             sftp_state: None,
+            transfer_receiver: None,
 
             // Search
             search_query: String::new(),
@@ -81,7 +84,6 @@ impl App {
         Ok(app)
     }
 
-
     pub fn clear_status_message(&mut self) {
         self.status_message = None;
     }
@@ -96,7 +98,10 @@ impl App {
 
         // When switching to Hosts panel, ensure selected_host is within bounds
         if self.active_panel == ActivePanel::Hosts && !self.hosts_in_current_group.is_empty() {
-            self.selected_host = std::cmp::min(self.selected_host, self.hosts_in_current_group.len().saturating_sub(1));
+            self.selected_host = std::cmp::min(
+                self.selected_host,
+                self.hosts_in_current_group.len().saturating_sub(1),
+            );
             self.host_list_state.select(Some(self.selected_host));
         }
     }
@@ -107,7 +112,10 @@ impl App {
 
         // When switching to Hosts panel, ensure selected_host is within bounds
         if !self.hosts_in_current_group.is_empty() {
-            self.selected_host = std::cmp::min(self.selected_host, self.hosts_in_current_group.len().saturating_sub(1));
+            self.selected_host = std::cmp::min(
+                self.selected_host,
+                self.hosts_in_current_group.len().saturating_sub(1),
+            );
             self.host_list_state.select(Some(self.selected_host));
         }
     }
@@ -119,7 +127,8 @@ impl App {
         }
 
         let current_group = &self.groups[self.selected_group];
-        self.hosts_in_current_group = self.hosts
+        self.hosts_in_current_group = self
+            .hosts
             .iter()
             .enumerate()
             .filter_map(|(i, host)| {
@@ -373,7 +382,7 @@ impl App {
                         self.ssh_ready_for_terminal = false;
                         self.ssh_receiver = None;
                         self.status_message = Some((format!("SSH Error: {}", err), Instant::now()));
-                        
+
                         // Restore TUI mode when SSH error occurs
                         if let Err(e) = self.restore_tui_mode(terminal) {
                             tracing::error!("Failed to restore TUI mode after SSH error: {}", e);
@@ -500,9 +509,13 @@ impl App {
     /// Enter SFTP mode with the currently selected host
     pub fn enter_sftp_mode<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
         if let Some(selected_host) = self.get_current_selected_host().cloned() {
-            // Create channel to communication
-            let (sender, receiver) = mpsc::channel::<SftpEvent>();
-            self.sftp_receiver = Some(receiver);
+            // Create channel for SFTP connection events
+            let (sftp_sender, sftp_receiver) = mpsc::channel::<SftpEvent>();
+            self.sftp_receiver = Some(sftp_receiver);
+
+            // Create channel for transfer progress events
+            let (transfer_sender, transfer_receiver) = tokio_mpsc::channel::<TransferEvent>(100);
+            self.transfer_receiver = Some(transfer_receiver);
 
             // Turn on loading status
             self.is_sftp_loading = true;
@@ -515,7 +528,7 @@ impl App {
             // Initialize AppSftpState asynchronously
             let host_clone = selected_host.clone();
             thread::spawn(move || {
-                Self::sftp_thread_worker(sender, host_clone);
+                Self::sftp_thread_worker(sftp_sender, host_clone, transfer_sender);
             });
 
             // Redraw UI to show loading
@@ -560,13 +573,17 @@ impl App {
                     sftp_state.switch_panel();
                 }
                 KeyCode::Char('u') => {
-                    if let Err(e) = sftp_state.upload_file().await {
-                        sftp_state.set_status_message(&format!("Upload error: {}", e));
+                    if sftp_state.upload_progress.is_none() {
+                        sftp_state.upload_file();
+                    } else {
+                        sftp_state.set_status_message("Upload already in progress");
                     }
                 }
                 KeyCode::Char('d') => {
-                    if let Err(e) = sftp_state.download_file().await {
-                        sftp_state.set_status_message(&format!("Download error: {}", e));
+                    if sftp_state.download_progress.is_none() {
+                        sftp_state.download_file();
+                    } else {
+                        sftp_state.set_status_message("Download already in progress");
                     }
                 }
                 KeyCode::Char('r') => {
@@ -584,7 +601,7 @@ impl App {
     }
 
     // Process SFTP events from channel
-    pub fn process_sftp_events<B: Backend>(&mut self, _terminal: &mut Terminal<B>) -> Result<bool> {
+    pub fn process_sftp_events<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<bool> {
         if let Some(receiver) = &self.sftp_receiver {
             // Non-blocking receive
             if let Ok(event) = receiver.try_recv() {
@@ -599,7 +616,7 @@ impl App {
                             ),
                             Instant::now(),
                         ));
-                        return Ok(false);
+                        return Ok(true); // Redraw to show SFTP UI
                     }
                     SftpEvent::Connecting => {
                         self.status_message =
@@ -621,7 +638,7 @@ impl App {
                         self.sftp_receiver = None;
                         self.status_message =
                             Some((format!("SFTP Error: {}", err), Instant::now()));
-                        return Ok(false);
+                        return Ok(true); // Redraw to show error
                     }
                     SftpEvent::Disconnected => {
                         tracing::info!("SFTP session disconnected, restoring TUI");
@@ -632,7 +649,62 @@ impl App {
                         self.status_message =
                             Some(("SFTP session ended".to_string(), Instant::now()));
                         return Ok(true); // Indicate we need to redraw
-                    } // _ => {}
+                    }
+                }
+            }
+        }
+        // Check if we need to redraw due to upload progress
+        if let Some(sftp_state) = &self.sftp_state {
+            if sftp_state.upload_progress.is_some() || sftp_state.download_progress.is_some() {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    // Process transfer events from channel
+    pub fn process_transfer_events(&mut self) -> Result<bool> {
+        if let Some(receiver) = &mut self.transfer_receiver {
+            if let Ok(event) = receiver.try_recv() {
+                if let Some(sftp_state) = &mut self.sftp_state {
+                    match event {
+                        TransferEvent::UploadProgress(file_name, uploaded, total) => {
+                            sftp_state.upload_progress = Some(UploadProgress {
+                                file_name,
+                                uploaded_size: uploaded,
+                                total_size: total,
+                            });
+                        }
+                        TransferEvent::UploadComplete(file_name) => {
+                            sftp_state.upload_progress = None;
+                            tracing::info!("Successfully uploaded {}", file_name);
+                            sftp_state.set_status_message(&format!("Successfully uploaded {}", file_name));
+                            let _ = sftp_state.refresh_remote();
+                        }
+                        TransferEvent::UploadError(file_name, error) => {
+                            sftp_state.upload_progress = None;
+                            sftp_state.set_status_message(&format!("Upload failed for {}: {}", file_name, error));
+                            let _ = sftp_state.refresh_remote();
+                        }
+                        TransferEvent::DownloadProgress(file_name, downloaded, total) => {
+                            tracing::info!("Downloading {}", file_name);
+                            sftp_state.download_progress = Some(DownloadProgress {
+                                file_name,
+                                downloaded_size: downloaded,
+                                total_size: total,
+                            });
+                        }
+                        TransferEvent::DownloadComplete(file_name) => {
+                            sftp_state.download_progress = None;
+                            sftp_state.set_status_message(&format!("Successfully downloaded {}", file_name));
+                            let _ = sftp_state.refresh_local();
+                        }
+                        TransferEvent::DownloadError(file_name, error) => {
+                            sftp_state.download_progress = None;
+                            sftp_state.set_status_message(&format!("Download failed for {}: {}", file_name, error));
+                        }
+                    }
+                    return Ok(true); // Redraw needed
                 }
             }
         }
@@ -640,7 +712,11 @@ impl App {
     }
 
     // Worker function run in SFTP thread
-    fn sftp_thread_worker(sender: Sender<SftpEvent>, host: SshHost) {
+    fn sftp_thread_worker(
+        sender: Sender<SftpEvent>,
+        host: SshHost,
+        transfer_tx: tokio_mpsc::Sender<TransferEvent>,
+    ) {
         tracing::info!("SFTP thread started for host: {}", host.alias);
 
         // Send event connecting
@@ -650,7 +726,12 @@ impl App {
         }
 
         // Perform SSH connection test first
-        match AppSftpState::new(&host.user, &host.host, host.port.unwrap_or(22)) {
+        match AppSftpState::new(
+            &host.user,
+            &host.host,
+            host.port.unwrap_or(22),
+            transfer_tx,
+        ) {
             Ok(sftp_state) => {
                 tracing::info!("SFTP connection test successful for {}", host.alias);
 
@@ -674,8 +755,5 @@ impl App {
                 let _ = sender.send(SftpEvent::Error(format!("Connection test failed: {}", e)));
             }
         }
-
-        tracing::info!("SFTP thread ending for host: {}", host.alias);
     }
 }
-

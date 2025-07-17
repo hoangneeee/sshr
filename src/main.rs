@@ -120,11 +120,13 @@ async fn run_app<B: ratatui::backend::Backend>(
     mut app: App,
 ) -> Result<()> {
     loop {
-        // Process SSH events first
+        // Process events
         let needs_redraw = app.process_ssh_events::<B>(terminal)?;
 
         // Process SFTP events
         let _ = app.process_sftp_events::<B>(terminal)?;
+        
+        app.process_transfer_events()?;
 
         // If we're in SSH mode, suspend the main loop until SSH ends
         if app.ssh_ready_for_terminal {
@@ -291,6 +293,8 @@ async fn handle_key_events<B: ratatui::backend::Backend>(
                 _ => {}
             }
         }
+        
+        // SFTP INPUT MODE
         InputMode::Sftp => app.handle_sftp_key(key_event).await?,
     }
     Ok(())

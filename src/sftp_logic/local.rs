@@ -10,6 +10,7 @@ impl AppSftpState {
         if self.local_selected >= self.local_files.len() {
             self.local_selected = self.local_files.len().saturating_sub(1);
         }
+        self.clear_status_message();
         Ok(())
     }
     
