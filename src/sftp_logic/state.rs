@@ -1,10 +1,17 @@
-use super::types::{AppSftpState, PanelSide};
+use super::types::{AppSftpState, PanelSide, UploadProgress, DownloadProgress};
 use anyhow::{Context, Result};
 use ratatui::widgets::ListState;
+use tokio::sync::mpsc;
+use crate::app_event::TransferEvent;
 
 impl AppSftpState {
     /// Create a new instance of AppSftpState
-    pub fn new(ssh_user: &str, ssh_host: &str, ssh_port: u16) -> Result<Self> {
+    pub fn new(
+        ssh_user: &str,
+        ssh_host: &str,
+        ssh_port: u16,
+        transfer_tx: mpsc::Sender<TransferEvent>,
+    ) -> Result<Self> {
         let current_dir = std::env::current_dir().context("Failed to get current directory")?;
 
         let mut state = Self {
@@ -26,6 +33,9 @@ impl AppSftpState {
             ssh_port,
             status_message: None,
             status_message_time: None,
+            upload_progress: None,
+            download_progress: None,
+            transfer_tx: Some(transfer_tx),
         };
 
         // Load initial directory contents
@@ -34,6 +44,7 @@ impl AppSftpState {
 
         Ok(state)
     }
+
 
     /// Set a status message to be displayed to the user
     pub fn set_status_message(&mut self, message: &str) {
