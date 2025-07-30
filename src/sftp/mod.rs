@@ -2,9 +2,8 @@
 
 mod local;
 mod remote;
-mod state;
+pub mod state;
 mod transfer;
-pub mod types;
+pub mod ui;
 
-pub use types::AppSftpState;
-pub use types::{FileItem, PanelSide};
+pub use state::AppSftpState;

@@ -1,16 +1,16 @@
-use super::types::AppSftpState;
-use crate::app_event::TransferEvent;
+use super::state::AppSftpState;
+use crate::events::TransferEvent;
 use anyhow::{Context, Result};
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncWriteExt};
 use tokio::process::Command;
 
 impl AppSftpState {
     /// Upload a file to the remote server
     pub fn upload_file(&mut self) {
-        if let Some(super::FileItem::File { name, .. }) =
+        if let Some(super::state::FileItem::File { name, .. }) =
             self.local_files.get(self.local_selected).cloned()
         {
             let name = name.clone();
@@ -66,7 +66,7 @@ impl AppSftpState {
 
     /// Download a file from the remote server
     pub fn download_file(&mut self) {
-        if let Some(super::FileItem::File { name, .. }) =
+        if let Some(super::state::FileItem::File { name, .. }) =
             self.remote_files.get(self.remote_selected).cloned()
         {
             let name = name.clone();

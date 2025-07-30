@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path};
-use super::types::{FileItem, AppSftpState};
+use super::state::{FileItem, AppSftpState};
 
 impl AppSftpState {
     /// Refresh the local file list
@@ -59,6 +59,7 @@ impl AppSftpState {
     }
     
     /// Go up one directory in the local file system
+    #[allow(dead_code)]
     pub fn go_local_back(&mut self) -> Result<()> {
         if let Some(parent) = self.local_current_path.parent() {
             self.local_current_path = parent.to_path_buf();

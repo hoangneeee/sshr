@@ -1,6 +1,6 @@
 use crate::app::ActivePanel;
 use crate::app::{App, InputMode};
-use crate::app_event::SshEvent;
+use crate::events::SshEvent;
 use anyhow::Result;
 use ratatui::backend::Backend;
 use ratatui::Terminal;
@@ -30,6 +30,7 @@ impl App {
         }
     }
 
+    #[allow(dead_code)]
     pub fn get_current_group(&self) -> Option<&str> {
         self.groups.get(self.selected_group).map(|s| s.as_str())
     }

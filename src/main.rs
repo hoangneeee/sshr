@@ -14,11 +14,10 @@ use std::{fs::File, time::Instant};
 use std::{io, time::Duration};
 use tracing_subscriber::{fmt, EnvFilter};
 
-mod app_event;
+mod events;
 mod config;
 mod models;
-mod sftp_logic;
-mod sftp_ui;
+mod sftp;
 mod app;
 mod ui;
 
@@ -154,7 +153,7 @@ async fn run_app<B: ratatui::backend::Backend>(
         terminal.draw(|f: &mut ratatui::Frame<'_>| match app.input_mode {
             InputMode::Sftp => {
                 if let Some(sftp_state) = &mut app.sftp_state {
-                    sftp_ui::draw_sftp::<B>(f, sftp_state);
+                    sftp::ui::draw_sftp::<B>(f, sftp_state);
                 } else {
                     draw::<B>(f, &mut app);
                 }
@@ -190,7 +189,7 @@ async fn run_app<B: ratatui::backend::Backend>(
             terminal.draw(|f| match app.input_mode {
                 InputMode::Sftp => {
                     if let Some(sftp_state) = &mut app.sftp_state {
-                        sftp_ui::draw_sftp::<B>(f, sftp_state);
+                        sftp::ui::draw_sftp::<B>(f, sftp_state);
                     } else {
                         draw::<B>(f, &mut app);
                     }

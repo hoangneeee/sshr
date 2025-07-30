@@ -1,8 +1,8 @@
-use crate::sftp_logic::types::{UploadProgress, DownloadProgress};
+use crate::sftp::state::{UploadProgress, DownloadProgress};
 use crate::app::App;
 use crate::config::ConfigManager;
 use crate::models::SshHost;
-use crate::sftp_logic::AppSftpState;
+use crate::sftp::AppSftpState;
 use crate::ui;
 use anyhow::{Context, Result};
 use crossterm::event::{KeyCode, KeyEvent};
@@ -17,7 +17,7 @@ use std::sync::mpsc::{self, Sender};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc as tokio_mpsc;
 
-use crate::app_event::{SftpEvent, SshEvent, TransferEvent};
+use crate::events::{SftpEvent, SshEvent, TransferEvent};
 use ratatui::{backend::Backend, widgets::ListState, Terminal};
 use std::path::PathBuf;
 use std::thread;
@@ -151,6 +151,7 @@ impl App {
         }
     }
 
+    #[allow(dead_code)]
     pub fn get_current_host(&self) -> Option<&SshHost> {
         self.hosts_in_current_group
             .get(self.selected_host)
@@ -601,7 +602,7 @@ impl App {
     }
 
     // Process SFTP events from channel
-    pub fn process_sftp_events<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<bool> {
+    pub fn process_sftp_events<B: Backend>(&mut self, _terminal: &mut Terminal<B>) -> Result<bool> {
         if let Some(receiver) = &self.sftp_receiver {
             // Non-blocking receive
             if let Ok(event) = receiver.try_recv() {

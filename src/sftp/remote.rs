@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use std::process::Command;
-use super::types::{FileItem, AppSftpState};
+use super::state::{FileItem, AppSftpState};
 
 impl AppSftpState {
     /// Refresh the remote file list
@@ -81,6 +81,7 @@ impl AppSftpState {
     }
     
     /// Go up one directory in the remote file system
+    #[allow(dead_code)]
     pub fn go_remote_back(&mut self) -> Result<()> {
         if self.remote_current_path != "/" {
             let mut path_parts: Vec<&str> = self.remote_current_path

@@ -1,4 +1,4 @@
-use crate::sftp_logic::AppSftpState;
+use crate::sftp::AppSftpState;
 
 #[derive(Debug, Clone)]
 pub enum SshEvent {

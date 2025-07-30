@@ -1,4 +1,4 @@
-use crate::app::{App, InputMode};
+use crate::app::App;
 use crate::models::SshHost;
 use anyhow::{Context, Result};
 use std::collections::HashSet;

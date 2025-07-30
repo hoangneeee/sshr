@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
-use crate::sftp_logic::AppSftpState;
+use crate::sftp::AppSftpState;
 use crate::{config::ConfigManager, models::SshHost};
 
-use crate::app_event::{SftpEvent, SshEvent, TransferEvent};
+use crate::events::{SftpEvent, SshEvent, TransferEvent};
 use ratatui::widgets::ListState;
 use std::sync::mpsc::Receiver;
 use tokio::sync::mpsc as tokio_mpsc;

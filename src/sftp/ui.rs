@@ -1,4 +1,4 @@
-use crate::sftp_logic::types::{
+use crate::sftp::state::{
     AppSftpState, DownloadProgress, FileItem, PanelSide, UploadProgress,
 };
 use ratatui::{
