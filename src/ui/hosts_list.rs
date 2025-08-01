@@ -11,6 +11,7 @@ use std::time::SystemTime;
 use crate::app::{App, InputMode, ActivePanel};
 use super::footer::draw_footer;
 use super::status_bar::draw_status_bar;
+use super::help_popup::render_help_popup;
 
 fn _elapsed() -> u64 {
     SystemTime::now()
@@ -44,6 +45,10 @@ pub fn draw<B: Backend>(f: &mut Frame, app: &mut App) {
     // Draw loading overlay if needed
     if app.is_connecting {
         draw_enhanced_loading_overlay::<B>(f, app);
+    }
+
+    if app.show_help {
+        render_help_popup::<B>(f, app);
     }
 }
 

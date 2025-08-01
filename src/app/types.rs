@@ -38,6 +38,8 @@ pub struct App {
     pub ssh_config_path: PathBuf,
     pub config_manager: ConfigManager,
     pub input_mode: InputMode,
+    pub show_help: bool,
+    pub help_scroll_position: u16,
 
     pub status_message: Option<(String, std::time::Instant)>,
 

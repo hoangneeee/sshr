@@ -48,6 +48,8 @@ impl Default for App {
             ssh_config_path,
             config_manager,
             input_mode: InputMode::Normal,
+            show_help: false,
+            help_scroll_position: 0,
             is_connecting: false,
             connecting_host: None,
             status_message: None,

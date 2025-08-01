@@ -205,6 +205,30 @@ async fn handle_key_events<B: ratatui::backend::Backend>(
     key_event: crossterm::event::KeyEvent,
     terminal: &mut Terminal<B>,
 ) -> Result<()> {
+    // Handle help popup toggle
+    if key_event.code == KeyCode::Char('?') {
+        app.show_help = !app.show_help;
+        return Ok(());
+    }
+
+    // If help is shown, only Esc can close it
+    if app.show_help {
+        match key_event.code {
+            KeyCode::Esc => {
+                app.show_help = false;
+                app.help_scroll_position = 0; // Reset scroll on close
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                app.help_scroll_position = app.help_scroll_position.saturating_sub(1);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                app.help_scroll_position = app.help_scroll_position.saturating_add(1);
+            }
+            _ => {}
+        }
+        return Ok(());
+    }
+
     match app.input_mode {
         InputMode::Normal => match key_event.code {
             KeyCode::Char('q') | KeyCode::Char('Q') => {
