@@ -8,20 +8,25 @@ use std::net::ToSocketAddrs;
 impl App {
     /// Update the list of groups and the hosts in the current group
     pub fn update_groups(&mut self) {
-        // Extract unique group names from hosts
+        // Extract unique group names from hosts that have an explicit group
         let mut groups: Vec<String> = self.hosts
             .iter()
             .filter_map(|host| host.group.clone())
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
             .collect();
-        
+
         // Sort groups alphabetically
         groups.sort();
-        
+
+        // Add "Ungrouped" at the end if any host has no group (e.g. from .ssh/config)
+        if self.hosts.iter().any(|h| h.group.is_none()) {
+            groups.push("Ungrouped".to_string());
+        }
+
         // Update groups list
         self.groups = groups;
-        
+
         // If no groups, clear the current group selection
         if self.groups.is_empty() {
             self.hosts_in_current_group.clear();
@@ -103,6 +108,12 @@ impl App {
 
                 // Start new host
                 let alias = line[5..].trim().to_string();
+                // Skip wildcard/pattern entries (e.g. "Host *", "Host *.example.com")
+                // These are global SSH settings, not connectable hosts
+                if alias.contains('*') || alias.contains('?') || alias.contains('!') {
+                    current_host = None;
+                    continue;
+                }
                 current_host = Some(SshHost::new(alias, String::new(), "root".to_string()));
             } else if let Some(host) = &mut current_host {
                 let parts: Vec<&str> = line.split_whitespace().collect();
