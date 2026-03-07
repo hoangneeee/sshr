@@ -1,10 +1,12 @@
 use super::types::AppSftpState;
 use crate::app_event::TransferEvent;
 use anyhow::{Context, Result};
+use shell_escape::unix::escape;
+use std::borrow::Cow;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
 impl AppSftpState {
@@ -24,6 +26,7 @@ impl AppSftpState {
             let ssh_user = self.ssh_user.clone();
             let ssh_host = self.ssh_host.clone();
             let ssh_port = self.ssh_port;
+            let strict_host_key_checking = self.strict_host_key_checking.clone();
             let tx = self.transfer_tx.clone().unwrap();
 
             tokio::spawn(async move {
@@ -35,6 +38,7 @@ impl AppSftpState {
                     ssh_port,
                     &local_path,
                     &remote_path,
+                    &strict_host_key_checking,
                     move |uploaded, total| {
                         let _ = progress_tx.try_send(TransferEvent::UploadProgress(
                             name_clone.clone(),
@@ -82,6 +86,7 @@ impl AppSftpState {
             let ssh_user = self.ssh_user.clone();
             let ssh_host = self.ssh_host.clone();
             let ssh_port = self.ssh_port;
+            let strict_host_key_checking = self.strict_host_key_checking.clone();
             let tx = self.transfer_tx.clone().unwrap();
 
             tokio::spawn(async move {
@@ -93,6 +98,7 @@ impl AppSftpState {
                     ssh_port,
                     &remote_path,
                     &local_path,
+                    &strict_host_key_checking,
                     move |downloaded, total| {
                         tracing::info!("Downloading try send {}", name_clone);
                         let _ = progress_tx.try_send(TransferEvent::DownloadProgress(
@@ -130,6 +136,7 @@ impl AppSftpState {
         port: u16,
         local_path: &Path,
         remote_path: &str,
+        strict_host_key_checking: &str,
         mut progress_callback: F,
     ) -> Result<()>
     where
@@ -139,17 +146,18 @@ impl AppSftpState {
         let metadata = file.metadata().context("Failed to get file metadata")?;
         let total_size = metadata.len();
 
+        let escaped_remote_path = escape(Cow::Borrowed(remote_path)).into_owned();
         let mut command = Command::new("scp")
             .arg("-P")
             .arg(port.to_string())
             .arg("-o")
             .arg("ConnectTimeout=30")
             .arg("-o")
-            .arg("StrictHostKeyChecking=no")
+            .arg(format!("StrictHostKeyChecking={}", strict_host_key_checking))
             .arg("-o")
             .arg("LogLevel=ERROR")
             .arg(local_path)
-            .arg(format!("{}@{}:{}", user, host, remote_path))
+            .arg(format!("{}@{}:{}", user, host, escaped_remote_path))
             .stdin(std::process::Stdio::piped())
             .spawn()
             .context("Failed to start scp upload command")?;
@@ -203,8 +211,10 @@ impl AppSftpState {
         port: u16,
         remote_path: &str,
         local_path: &Path,
+        strict_host_key_checking: &str,
         progress_callback: F,
     ) -> Result<()> {
+        let escaped_remote_path = escape(Cow::Borrowed(remote_path)).into_owned();
         // First, get the remote file size
         let size_output = Command::new("ssh")
             .arg("-p")
@@ -212,11 +222,11 @@ impl AppSftpState {
             .arg("-o")
             .arg("ConnectTimeout=30")
             .arg("-o")
-            .arg("StrictHostKeyChecking=no")
+            .arg(format!("StrictHostKeyChecking={}", strict_host_key_checking))
             .arg("-o")
             .arg("LogLevel=ERROR")
             .arg(format!("{}@{}", user, host))
-            .arg(format!("stat -c%s {}", remote_path))
+            .arg(format!("stat -c%s {}", escaped_remote_path))
             .output()
             .await
             .context("Failed to get remote file size")?;
@@ -245,8 +255,8 @@ impl AppSftpState {
             let local_path = local_path.to_path_buf();
             let user = user.to_string();
             let host = host.to_string();
-            let remote_path = remote_path.to_string();
-            
+            let strict_host_key_checking = strict_host_key_checking.to_string();
+
             tokio::spawn(async move {
                 Command::new("scp")
                     .arg("-P")
@@ -254,10 +264,10 @@ impl AppSftpState {
                     .arg("-o")
                     .arg("ConnectTimeout=30")
                     .arg("-o")
-                    .arg("StrictHostKeyChecking=no")
+                    .arg(format!("StrictHostKeyChecking={}", strict_host_key_checking))
                     .arg("-o")
                     .arg("LogLevel=ERROR")
-                    .arg(format!("{}@{}:{}", user, host, remote_path))
+                    .arg(format!("{}@{}:{}", user, host, escaped_remote_path))
                     .arg(&local_path)
                     .status()
                     .await

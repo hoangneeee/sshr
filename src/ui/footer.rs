@@ -15,7 +15,7 @@ pub fn draw_footer<B: Backend>(f: &mut Frame, app: &App, area: Rect) {
         .split(area);
 
     let key_style = Style::default()
-        .fg(Color::LightCyan)
+        .fg(app.theme.secondary)
         .add_modifier(Modifier::BOLD);
     let desc_style = Style::default().fg(Color::DarkGray);
 

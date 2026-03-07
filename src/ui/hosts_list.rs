@@ -81,12 +81,12 @@ fn draw_groups_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
                 (
                     Style::default()
                         .fg(Color::Black)
-                        .bg(Color::Green)
+                        .bg(app.theme.primary)
                         .add_modifier(Modifier::BOLD),
-                    Style::default().bg(Color::Green)
+                    Style::default().bg(app.theme.primary)
                 )
             } else {
-                (Style::default().fg(Color::White), Style::default())
+                (Style::default().fg(app.theme.text), Style::default())
             };
             
             let spans = vec![
@@ -107,7 +107,7 @@ fn draw_groups_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
         .collect();
     
     let border_style = if is_active {
-        Style::default().fg(Color::Green)
+        Style::default().fg(app.theme.primary)
     } else {
         Style::default()
     };
@@ -141,7 +141,7 @@ fn draw_hosts_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
         let search_block = Block::default()
             .borders(Borders::ALL)
             .title(search_title)
-            .border_style(Style::default().fg(Color::Yellow));
+            .border_style(Style::default().fg(app.theme.highlight));
         
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -151,7 +151,7 @@ fn draw_hosts_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
 
         let search_text = format!("{} {}", app.search_query, cursor);
         let search_paragraph = Paragraph::new(search_text)
-            .style(Style::default().fg(Color::White))
+            .style(Style::default().fg(app.theme.text))
             .block(search_block);
         
         f.render_widget(search_paragraph, search_chunks[0]);
@@ -164,14 +164,14 @@ fn draw_hosts_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
 
         (
             search_chunks[1],
-            Style::default().fg(Color::Yellow),
+            Style::default().fg(app.theme.highlight),
             results_title,
         )
     } else {
         // --- Normal Mode UI ---
         (
             area,
-            if is_active { Style::default().fg(Color::Green) } else { Style::default() },
+            if is_active { Style::default().fg(app.theme.primary) } else { Style::default() },
             format!(" {} 👤 Hosts ", if is_active { ">" } else { " " }),
         )
     };
@@ -213,12 +213,12 @@ fn draw_hosts_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
                 (
                     Style::default()
                         .fg(Color::Black)
-                        .bg(if is_search_mode { Color::Yellow } else { Color::Green })
+                        .bg(if is_search_mode { app.theme.highlight } else { app.theme.primary })
                         .add_modifier(Modifier::BOLD),
-                    Style::default().bg(if is_search_mode { Color::Yellow } else { Color::Green })
+                    Style::default().bg(if is_search_mode { app.theme.highlight } else { app.theme.primary })
                 )
             } else {
-                (Style::default().fg(Color::White), Style::default())
+                (Style::default().fg(app.theme.text), Style::default())
             };
             
             let mut spans = vec![Span::styled(prefix, text_style)];
@@ -231,21 +231,24 @@ fn draw_hosts_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
             
             // Add host alias with search highlighting if in search mode
             if is_search_mode && !app.search_query.is_empty() {
+                let alias_chars: Vec<char> = host.alias.chars().collect();
                 let mut last_idx = 0;
-                for (idx, char) in host.alias.chars().enumerate() {
+                for (idx, &ch) in alias_chars.iter().enumerate() {
                     if filtered_host.matched_indices.contains(&idx) {
                         if idx > last_idx {
-                            spans.push(Span::styled(&host.alias[last_idx..idx], text_style));
+                            let prefix: String = alias_chars[last_idx..idx].iter().collect();
+                            spans.push(Span::styled(prefix, text_style));
                         }
                         spans.push(Span::styled(
-                            char.to_string(),
-                            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                            ch.to_string(),
+                            Style::default().fg(app.theme.error).add_modifier(Modifier::BOLD),
                         ));
                         last_idx = idx + 1;
                     }
                 }
-                if last_idx < host.alias.len() {
-                    spans.push(Span::styled(&host.alias[last_idx..], text_style));
+                if last_idx < alias_chars.len() {
+                    let suffix: String = alias_chars[last_idx..].iter().collect();
+                    spans.push(Span::styled(suffix, text_style));
                 }
             } else {
                 // Not in search mode, just add the alias
