@@ -10,10 +10,10 @@ build:
 	cargo build --release
 
 publish: build
-	@echo "Publishing sshr $(shell cat version) to GitHub"
-	git tag v$(shell cat version)
+	@echo "Publishing sshr $(shell grep '^version' Cargo.toml | head -1 | sed 's/version = \"\(.*\)\"/\1/') to GitHub"
+	git tag v$(shell grep '^version' Cargo.toml | head -1 | sed 's/version = \"\(.*\)\"/\1/')
 	git push --tags
-	@echo "sshr $(shell cat version) published to GitHub"
+	@echo "sshr $(shell grep '^version' Cargo.toml | head -1 | sed 's/version = \"\(.*\)\"/\1/') published to GitHub"
 
 publish-latest: build
 	@echo "Publishing sshr latest to GitHub"
