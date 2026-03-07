@@ -22,6 +22,19 @@ publish-latest: build
 	git push --tags -f
 	@echo "sshr latest published to GitHub"
 
+republish:
+	@VERSION=$$(grep '^version' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/'); \
+	echo "Republishing v$$VERSION and latest..."; \
+	git tag -d v$$VERSION 2>/dev/null || true; \
+	git push origin :refs/tags/v$$VERSION 2>/dev/null || true; \
+	git tag v$$VERSION; \
+	git push origin v$$VERSION; \
+	git tag -d latest 2>/dev/null || true; \
+	git push origin :refs/tags/latest 2>/dev/null || true; \
+	git tag latest; \
+	git push origin latest; \
+	echo "Done: v$$VERSION and latest republished."
+
 install: build
 	@echo "Installing sshr to /usr/local/bin"
 	@mkdir -p /usr/local/bin
