@@ -57,8 +57,9 @@ impl App {
 
             // Spawn SSH thread
             let host_clone = selected_host.clone();
+            let strict_host_key_checking = self.strict_host_key_checking.clone();
             thread::spawn(move || {
-                Self::ssh_thread_worker(sender, host_clone);
+                Self::ssh_thread_worker(sender, host_clone, strict_host_key_checking);
             });
 
             // Redraw UI to show loading

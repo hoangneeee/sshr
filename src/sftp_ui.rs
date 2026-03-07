@@ -1,6 +1,7 @@
 use crate::sftp_logic::types::{
     AppSftpState, DownloadProgress, FileItem, PanelSide, UploadProgress,
 };
+use crate::theme::ResolvedTheme;
 use ratatui::{
     backend::Backend,
     layout::{Constraint, Direction, Layout, Rect},
@@ -10,7 +11,7 @@ use ratatui::{
     Frame,
 };
 
-pub fn draw_sftp<B: Backend>(f: &mut Frame, sftp_state: &mut AppSftpState) {
+pub fn draw_sftp<B: Backend>(f: &mut Frame, sftp_state: &mut AppSftpState, theme: &ResolvedTheme) {
     let main_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -34,6 +35,7 @@ pub fn draw_sftp<B: Backend>(f: &mut Frame, sftp_state: &mut AppSftpState) {
         sftp_state.local_selected,
         &format!("Local: {}", sftp_state.local_current_path.display()),
         sftp_state.active_panel == PanelSide::Local,
+        theme,
     );
 
     // Draw remote panel (right)
@@ -45,24 +47,25 @@ pub fn draw_sftp<B: Backend>(f: &mut Frame, sftp_state: &mut AppSftpState) {
         sftp_state.remote_selected,
         &format!("Remote: {}", sftp_state.remote_current_path),
         sftp_state.active_panel == PanelSide::Remote,
+        theme,
     );
 
     // Draw footer with controls
-    draw_sftp_footer::<B>(f, main_chunks[1], sftp_state);
+    draw_sftp_footer::<B>(f, main_chunks[1], sftp_state, theme);
 
     // Draw status message if exists
     if let Some(ref message) = sftp_state.status_message {
-        draw_status_overlay::<B>(f, message);
+        draw_status_overlay::<B>(f, message, theme);
     }
 
     // Draw upload progress if active
     if let Some(ref progress) = sftp_state.upload_progress {
-        draw_upload_progress::<B>(f, progress);
+        draw_upload_progress::<B>(f, progress, theme);
     }
 
     // Draw download progress if active
     if let Some(ref progress) = sftp_state.download_progress {
-        draw_download_progress::<B>(f, progress);
+        draw_download_progress::<B>(f, progress, theme);
     }
 }
 
@@ -74,16 +77,17 @@ fn draw_file_panel<B: Backend>(
     selected: usize,
     title: &str,
     is_active: bool,
+    theme: &ResolvedTheme,
 ) {
     let border_style = if is_active {
-        Style::default().fg(Color::Green)
+        Style::default().fg(theme.primary)
     } else {
         Style::default().fg(Color::Gray)
     };
 
     let title_style = if is_active {
         Style::default()
-            .fg(Color::Green)
+            .fg(theme.primary)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
@@ -107,7 +111,7 @@ fn draw_file_panel<B: Backend>(
             // Selection indicator
             spans.push(Span::styled(
                 if is_selected { "> " } else { "  " },
-                Style::default().fg(Color::Yellow),
+                Style::default().fg(theme.highlight),
             ));
 
             // File type icon and name
@@ -125,7 +129,7 @@ fn draw_file_panel<B: Backend>(
                 } => ("📄 ", Color::White),
             };
 
-            spans.push(Span::styled(icon, Style::default().fg(Color::Yellow)));
+            spans.push(Span::styled(icon, Style::default().fg(theme.highlight)));
 
             let name = match file {
                 FileItem::Directory { name } => name,
@@ -155,7 +159,7 @@ fn draw_file_panel<B: Backend>(
 
             let style = if is_selected {
                 Style::default()
-                    .bg(Color::Green)
+                    .bg(theme.primary)
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
@@ -169,7 +173,7 @@ fn draw_file_panel<B: Backend>(
     f.render_stateful_widget(list, area, list_state);
 }
 
-fn draw_sftp_footer<B: Backend>(f: &mut Frame, area: Rect, sftp_state: &AppSftpState) {
+fn draw_sftp_footer<B: Backend>(f: &mut Frame, area: Rect, sftp_state: &AppSftpState, theme: &ResolvedTheme) {
     let footer_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -185,7 +189,7 @@ fn draw_sftp_footer<B: Backend>(f: &mut Frame, area: Rect, sftp_state: &AppSftpS
 
     // Action help
     let action_text = "[u]: Upload  [d]: Download  [r]: Refresh  [q]: Quit SFTP";
-    let action_help = Paragraph::new(action_text).style(Style::default().fg(Color::Yellow));
+    let action_help = Paragraph::new(action_text).style(Style::default().fg(theme.highlight));
 
     // Status/Info
     let active_panel_text = format!(
@@ -196,7 +200,7 @@ fn draw_sftp_footer<B: Backend>(f: &mut Frame, area: Rect, sftp_state: &AppSftpS
         }
     );
     let status_help = Paragraph::new(active_panel_text)
-        .style(Style::default().fg(Color::Cyan))
+        .style(Style::default().fg(theme.secondary))
         .alignment(ratatui::layout::Alignment::Right);
 
     f.render_widget(nav_help, footer_chunks[0]);
@@ -204,7 +208,7 @@ fn draw_sftp_footer<B: Backend>(f: &mut Frame, area: Rect, sftp_state: &AppSftpS
     f.render_widget(status_help, footer_chunks[2]);
 }
 
-fn draw_status_overlay<B: Backend>(f: &mut Frame, message: &str) {
+fn draw_status_overlay<B: Backend>(f: &mut Frame, message: &str, theme: &ResolvedTheme) {
     let area = centered_rect(60, 5, f.size());
 
     let block = Block::default()
@@ -212,21 +216,21 @@ fn draw_status_overlay<B: Backend>(f: &mut Frame, message: &str) {
         .title(" Status ")
         .title_style(
             Style::default()
-                .fg(Color::Yellow)
+                .fg(theme.highlight)
                 .add_modifier(Modifier::BOLD),
         )
-        .border_style(Style::default().fg(Color::Yellow));
+        .border_style(Style::default().fg(theme.highlight));
 
     let paragraph = Paragraph::new(message)
         .block(block)
-        .style(Style::default().fg(Color::White))
+        .style(Style::default().fg(theme.text))
         .alignment(ratatui::layout::Alignment::Center);
 
     f.render_widget(Clear, area);
     f.render_widget(paragraph, area);
 }
 
-fn draw_upload_progress<B: Backend>(f: &mut Frame, progress: &UploadProgress) {
+fn draw_upload_progress<B: Backend>(f: &mut Frame, progress: &UploadProgress, theme: &ResolvedTheme) {
     // Use a wider area to accommodate the file name
     let area = bottom_right_rect(40, 6, f.size());
 
@@ -253,16 +257,16 @@ fn draw_upload_progress<B: Backend>(f: &mut Frame, progress: &UploadProgress) {
         .borders(Borders::ALL)
         .title_style(
             Style::default()
-                .fg(Color::Yellow)
+                .fg(theme.highlight)
                 .add_modifier(Modifier::BOLD),
         )
-        .border_style(Style::default().fg(Color::Yellow))
+        .border_style(Style::default().fg(theme.highlight))
         .title(format!(" {} ", truncated_name));
 
     // Create the gauge with file sizes as label
     let gauge = Gauge::default()
         .block(block)
-        .gauge_style(Style::default().fg(Color::Green).bg(Color::Black))
+        .gauge_style(Style::default().fg(theme.primary).bg(Color::Black))
         .label(format!(
             "{} / {}",
             format_file_size(progress.uploaded_size),
@@ -274,7 +278,7 @@ fn draw_upload_progress<B: Backend>(f: &mut Frame, progress: &UploadProgress) {
     f.render_widget(gauge, area);
 }
 
-fn draw_download_progress<B: Backend>(f: &mut Frame, progress: &DownloadProgress) {
+fn draw_download_progress<B: Backend>(f: &mut Frame, progress: &DownloadProgress, theme: &ResolvedTheme) {
     // Use a wider area to accommodate the file name
     let area = bottom_right_rect(40, 6, f.size());
 
@@ -301,16 +305,16 @@ fn draw_download_progress<B: Backend>(f: &mut Frame, progress: &DownloadProgress
         .borders(Borders::ALL)
         .title_style(
             Style::default()
-                .fg(Color::Yellow)
+                .fg(theme.highlight)
                 .add_modifier(Modifier::BOLD),
         )
-        .border_style(Style::default().fg(Color::Yellow))
+        .border_style(Style::default().fg(theme.highlight))
         .title(format!(" Download Progress {} ", truncated_name));
 
     // Create the gauge with file sizes as label
     let gauge = Gauge::default()
         .block(block)
-        .gauge_style(Style::default().fg(Color::Green).bg(Color::Black))
+        .gauge_style(Style::default().fg(theme.primary).bg(Color::Black))
         .label(format!(
             "{} / {}",
             format_file_size(progress.downloaded_size),

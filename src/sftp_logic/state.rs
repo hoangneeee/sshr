@@ -11,6 +11,7 @@ impl AppSftpState {
         ssh_host: &str,
         ssh_port: u16,
         transfer_tx: mpsc::Sender<TransferEvent>,
+        strict_host_key_checking: &str,
     ) -> Result<Self> {
         let current_dir = std::env::current_dir().context("Failed to get current directory")?;
 
@@ -31,6 +32,7 @@ impl AppSftpState {
             ssh_host: ssh_host.to_string(),
             ssh_user: ssh_user.to_string(),
             ssh_port,
+            strict_host_key_checking: strict_host_key_checking.to_string(),
             status_message: None,
             status_message_time: None,
             upload_progress: None,

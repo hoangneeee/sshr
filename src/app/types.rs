@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use crate::sftp_logic::AppSftpState;
+use crate::theme::ResolvedTheme;
 use crate::{config::ConfigManager, models::SshHost};
 
 use crate::app_event::{SftpEvent, SshEvent, TransferEvent};
@@ -38,6 +39,8 @@ pub struct App {
     pub ssh_config_path: PathBuf,
     pub config_manager: ConfigManager,
     pub input_mode: InputMode,
+    pub strict_host_key_checking: String,
+    pub theme: ResolvedTheme,
 
     pub status_message: Option<(String, std::time::Instant)>,
 

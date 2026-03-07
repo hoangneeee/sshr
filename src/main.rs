@@ -19,6 +19,7 @@ mod config;
 mod models;
 mod sftp_logic;
 mod sftp_ui;
+mod theme;
 mod app;
 mod ui;
 
@@ -151,10 +152,11 @@ async fn run_app<B: ratatui::backend::Backend>(
         }
 
         // Draw UI (only when not in SSH mode)
+        let theme = app.theme.clone();
         terminal.draw(|f: &mut ratatui::Frame<'_>| match app.input_mode {
             InputMode::Sftp => {
                 if let Some(sftp_state) = &mut app.sftp_state {
-                    sftp_ui::draw_sftp::<B>(f, sftp_state);
+                    sftp_ui::draw_sftp::<B>(f, sftp_state, &theme);
                 } else {
                     draw::<B>(f, &mut app);
                 }
@@ -187,10 +189,11 @@ async fn run_app<B: ratatui::backend::Backend>(
 
         // Force redraw if needed
         if needs_redraw {
+            let theme = app.theme.clone();
             terminal.draw(|f| match app.input_mode {
                 InputMode::Sftp => {
                     if let Some(sftp_state) = &mut app.sftp_state {
-                        sftp_ui::draw_sftp::<B>(f, sftp_state);
+                        sftp_ui::draw_sftp::<B>(f, sftp_state, &theme);
                     } else {
                         draw::<B>(f, &mut app);
                     }

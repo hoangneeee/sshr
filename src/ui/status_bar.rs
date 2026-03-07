@@ -21,18 +21,18 @@ pub fn draw_status_bar<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
           let style = if message.to_lowercase().contains("error")
               || message.to_lowercase().contains("failed")
           {
-              Style::default().fg(Color::Red)
+              Style::default().fg(app.theme.error)
           } else if message.to_lowercase().contains("success")
               || message.to_lowercase().contains("successful")
               || message.to_lowercase().contains("ended")
           {
-              Style::default().fg(Color::Green)
+              Style::default().fg(app.theme.success)
           } else if message.to_lowercase().contains("connecting")
               || message.to_lowercase().contains("testing")
           {
-              Style::default().fg(Color::Cyan)
+              Style::default().fg(app.theme.secondary)
           } else {
-              Style::default().fg(Color::Yellow)
+              Style::default().fg(app.theme.highlight)
           };
 
           let paragraph = Paragraph::new(message.as_str())

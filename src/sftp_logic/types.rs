@@ -56,6 +56,7 @@ pub struct AppSftpState {
     pub ssh_host: String,
     pub ssh_user: String,
     pub ssh_port: u16,
+    pub strict_host_key_checking: String,
     
     // UI state
     pub status_message: Option<String>,
