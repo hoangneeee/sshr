@@ -9,21 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-
 ### Changed / Fixed
-
 
 ### Removed
 
+---
+
+## [0.9.0]
+
+### Changed / Fixed
+
+- Improve architechture
+
+---
+
+## [0.8.0]
+
+### Changed / Fixed
+
+- Update UI SFTP
 
 ---
 
 ### [0.7.0] - 2025-07-01
 
 ### Added
+
 - Update UI search mode to user friendly
 
 ### Changed / Fixed
+
 - Fix bug restore tui when has error in ssh mode
 
 ---
@@ -43,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 ## [0.4.0] - 2025-06-06
+
 ### Features
 
 - Press s to search
@@ -50,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 ## [0.3.0] - 2025-06-05
+
 ### Changed
 
 - Use edit action instead of add, delete action
@@ -63,6 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 ## [0.2.0] - 2025-06-03
+
 ### Added
 
 - Add formula support homebrew
@@ -89,4 +107,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Read ssh host from ~/.ssh/config
 - Support connect to ssh host
 - Show list ssh host in TUI
-
