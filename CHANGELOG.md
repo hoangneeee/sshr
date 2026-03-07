@@ -15,11 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.9.0]
+## [0.9.0] - 2026-03-07
 
 ### Changed / Fixed
 
-- Improve architechture
+- Implement architecture
+- Fixed read SSH config host on Ubuntu
 
 ---
 
