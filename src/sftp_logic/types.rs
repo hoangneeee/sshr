@@ -1,8 +1,10 @@
-use std::path::PathBuf;
-use std::time::Instant;
-use ratatui::widgets::ListState;
-use tokio::sync::mpsc;
 use crate::app_event::TransferEvent;
+use crate::ssh_client::SftpClient;
+use ratatui::widgets::ListState;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Instant;
+use tokio::sync::mpsc;
 
 /// Represents a file or directory item in the file browser
 #[derive(Debug, Clone)]
@@ -18,7 +20,6 @@ pub enum PanelSide {
     Remote,
 }
 
-/// Represents upload progress information
 #[derive(Debug, Clone)]
 pub struct UploadProgress {
     pub file_name: String,
@@ -26,7 +27,6 @@ pub struct UploadProgress {
     pub total_size: u64,
 }
 
-/// Represents download progress information
 #[derive(Debug, Clone)]
 pub struct DownloadProgress {
     pub file_name: String,
@@ -34,40 +34,41 @@ pub struct DownloadProgress {
     pub total_size: u64,
 }
 
-/// Main application state for the SFTP file browser
-#[derive(Debug, Clone)]
+/// Main application state for the SFTP file browser.
+///
+/// Holds the persistent SFTP client connection plus local/remote panel
+/// state. Cloning is intentionally not derived — the `client` is shared
+/// across spawned tasks via Arc.
+#[derive(Debug)]
 pub struct AppSftpState {
-    /// Currently active panel (local or remote)
     pub active_panel: PanelSide,
-    
+
     // Local panel state
     pub local_current_path: PathBuf,
     pub local_files: Vec<FileItem>,
     pub local_selected: usize,
     pub local_list_state: ListState,
-    
+
     // Remote panel state
     pub remote_current_path: String,
     pub remote_files: Vec<FileItem>,
     pub remote_selected: usize,
     pub remote_list_state: ListState,
-    
-    // SFTP connection info
+
+    /// Used in status messages and the SFTP overlay title.
     pub ssh_host: String,
-    pub ssh_user: String,
-    pub ssh_port: u16,
-    pub strict_host_key_checking: String,
-    
+
     // UI state
     pub status_message: Option<String>,
     pub status_message_time: Option<Instant>,
-    
-    // Upload progress
+
+    // Transfer progress
     pub upload_progress: Option<UploadProgress>,
-    // Download progress
     pub download_progress: Option<DownloadProgress>,
 
-    // Transfer event sender
+    // Channel for transfer worker tasks to post progress back to the UI.
     pub transfer_tx: mpsc::Sender<TransferEvent>,
-}
 
+    /// Persistent SSH+SFTP session, shared with spawned upload/download tasks.
+    pub client: Arc<SftpClient>,
+}

@@ -19,6 +19,7 @@ mod config;
 mod constants;
 mod models;
 mod sftp_logic;
+mod ssh_client;
 mod theme;
 mod ui;
 
@@ -115,7 +116,7 @@ async fn run_app<B: ratatui::backend::Backend>(
         // to its methods without aliasing the stack itself.
         let mut current = app.screens.pop().expect("non-empty by check above");
 
-        let action = current.poll(&mut app, terminal)?;
+        let action = current.poll(&mut app, terminal).await?;
         let action = match action {
             ScreenAction::None => {
                 if !current.wants_input() {
@@ -174,7 +175,7 @@ impl crate::app::AppScreen {
         if event::poll(poll_timeout).context("Event poll failed")? {
             if let CrosstermEvent::Key(key_event) = event::read().context("Event read failed")? {
                 if key_event.kind == event::KeyEventKind::Press {
-                    return self.handle_key(key_event, app, terminal);
+                    return self.handle_key(key_event, app, terminal).await;
                 }
             }
         }
