@@ -19,6 +19,9 @@ pub struct ResolvedTheme {
     pub warning: Color,
     /// Success messages (was Color::Green)
     pub success: Color,
+    /// Painted across the full frame before any widget draws.
+    /// `Color::Reset` means "inherit terminal background" (no paint).
+    pub background: Color,
 }
 
 impl ResolvedTheme {
@@ -31,6 +34,7 @@ impl ResolvedTheme {
             error: parse_hex(&colors.error).unwrap_or(Color::Red),
             warning: parse_hex(&colors.warning).unwrap_or(Color::Yellow),
             success: parse_hex(&colors.success).unwrap_or(Color::Green),
+            background: parse_hex(&colors.background).unwrap_or(Color::Reset),
         }
     }
 }
@@ -45,6 +49,7 @@ impl Default for ResolvedTheme {
             error: Color::Red,
             warning: Color::Yellow,
             success: Color::Green,
+            background: Color::Reset,
         }
     }
 }

@@ -6,7 +6,12 @@
 
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::{backend::Backend, Frame, Terminal};
+use ratatui::{
+    backend::Backend,
+    style::Style,
+    widgets::Block,
+    Frame, Terminal,
+};
 use std::time::Instant;
 
 use crate::app::hosts_state::ActivePanel;
@@ -92,6 +97,14 @@ impl PasswordPromptScreen {
 
 impl AppScreen {
     pub fn draw(&mut self, f: &mut Frame, app: &mut App) {
+        // Paint the themed background across the full frame before any
+        // widget draws. Color::Reset = leave terminal default untouched.
+        let bg = app.ctx.theme.background;
+        f.render_widget(
+            Block::default().style(Style::default().bg(bg)),
+            f.size(),
+        );
+
         match self {
             Self::Hosts(s) => {
                 hosts_list::draw(f, app, s.mode == HostsMode::Search);
