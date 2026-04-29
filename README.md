@@ -23,7 +23,11 @@ SSHR is a TUI (Text User Interface) application for managing and connecting to h
 
 ## 🖥️ UI Preview
 
-![image](./docs/preview_2.png)
+### Mode SSH
+![image1](./docs/preview_1.png)
+
+### Mode SFTP
+![image2](./docs/preview_2.png)
 
 ## 🚀 Quick Start
 
