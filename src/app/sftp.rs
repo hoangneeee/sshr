@@ -1,6 +1,8 @@
 use crate::app::App;
 use crate::app_event::{SftpEvent, TransferEvent};
-use crate::constants::{SSH_PRE_LAUNCH_DELAY, TRANSFER_CHANNEL_BUFFER};
+use crate::constants::{
+    SFTP_EVENT_CHANNEL_BUFFER, SSH_PRE_LAUNCH_DELAY, TRANSFER_CHANNEL_BUFFER,
+};
 use crate::models::SshHost;
 use crate::sftp_logic::AppSftpState;
 use crate::sftp_logic::types::{DownloadProgress, UploadProgress};
@@ -9,7 +11,6 @@ use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::backend::Backend;
 use ratatui::Terminal;
-use std::sync::mpsc;
 use std::thread;
 use std::time::Instant;
 use tokio::sync::mpsc as tokio_mpsc;
@@ -17,7 +18,8 @@ use tokio::sync::mpsc as tokio_mpsc;
 impl App {
     pub fn enter_sftp_mode<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
         if let Some(selected_host) = self.get_current_selected_host().cloned() {
-            let (sftp_sender, sftp_receiver) = mpsc::channel::<SftpEvent>();
+            let (sftp_sender, sftp_receiver) =
+                tokio_mpsc::channel::<SftpEvent>(SFTP_EVENT_CHANNEL_BUFFER);
             self.sftp_receiver = Some(sftp_receiver);
 
             let (transfer_sender, transfer_receiver) =
@@ -31,9 +33,10 @@ impl App {
                 Instant::now(),
             ));
 
+            // Worker shells out to ssh (blocking) — run on tokio's blocking pool.
             let host_clone = selected_host.clone();
             let strict_host_key_checking = self.strict_host_key_checking.clone();
-            thread::spawn(move || {
+            tokio::task::spawn_blocking(move || {
                 Self::sftp_thread_worker(sftp_sender, host_clone, transfer_sender, strict_host_key_checking);
             });
 
@@ -104,8 +107,8 @@ impl App {
         Ok(())
     }
 
-    pub fn process_sftp_events<B: Backend>(&mut self, _terminal: &mut Terminal<B>) -> Result<bool> {
-        if let Some(receiver) = &self.sftp_receiver {
+    pub fn process_sftp_events(&mut self) -> Result<bool> {
+        if let Some(receiver) = &mut self.sftp_receiver {
             if let Ok(event) = receiver.try_recv() {
                 match event {
                     SftpEvent::PreConnected(sftp_state) => {
@@ -212,14 +215,14 @@ impl App {
     }
 
     fn sftp_thread_worker(
-        sender: mpsc::Sender<SftpEvent>,
+        sender: tokio_mpsc::Sender<SftpEvent>,
         host: SshHost,
         transfer_tx: tokio_mpsc::Sender<TransferEvent>,
         strict_host_key_checking: String,
     ) {
         tracing::info!("SFTP thread started for host: {}", host.alias);
 
-        if sender.send(SftpEvent::Connecting).is_err() {
+        if sender.blocking_send(SftpEvent::Connecting).is_err() {
             tracing::error!("Failed to send Connecting event");
             return;
         }
@@ -234,11 +237,11 @@ impl App {
             Ok(sftp_state) => {
                 tracing::info!("SFTP connection test successful for {}", host.alias);
 
-                if sender.send(SftpEvent::PreConnected(sftp_state)).is_err() {
+                if sender.blocking_send(SftpEvent::PreConnected(sftp_state)).is_err() {
                     tracing::error!("Failed to send PreConnected event");
                     return;
                 }
-                if sender.send(SftpEvent::Connected).is_ok() {
+                if sender.blocking_send(SftpEvent::Connected).is_ok() {
                     thread::sleep(SSH_PRE_LAUNCH_DELAY);
                     tracing::info!("Starting SFTP session for {}", host.alias);
                 } else {
@@ -247,7 +250,8 @@ impl App {
             }
             Err(e) => {
                 tracing::error!("SFTP connection test failed for {}: {}", host.alias, e);
-                let _ = sender.send(SftpEvent::Error(format!("Connection test failed: {}", e)));
+                let _ = sender
+                    .blocking_send(SftpEvent::Error(format!("Connection test failed: {}", e)));
             }
         }
     }

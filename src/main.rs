@@ -25,9 +25,7 @@ mod theme;
 mod ui;
 
 use crate::app::{App, InputMode};
-use crate::constants::{
-    POLL_CONNECTING, POLL_NORMAL, SSH_SUSPEND_POLL,
-};
+use crate::constants::{POLL_CONNECTING, POLL_NORMAL};
 use crate::ui::hosts_list::draw;
 use crate::ui::sftp::draw_sftp;
 
@@ -142,21 +140,21 @@ async fn run_app<B: ratatui::backend::Backend>(
 ) -> Result<()> {
     loop {
         let needs_redraw = app.process_ssh_events::<B>(terminal)?;
-        let _ = app.process_sftp_events::<B>(terminal)?;
+        let _ = app.process_sftp_events()?;
         app.process_transfer_events()?;
 
-        // If we're in SSH mode, suspend the main loop until SSH ends
+        // If we're in SSH mode, suspend the main loop until SSH ends.
+        // Block on the next SSH event instead of busy-polling — this is
+        // cheap and avoids interfering with the foreground ssh process.
         if app.ssh_ready_for_terminal {
             tracing::info!("SSH mode active - suspending main loop");
 
-            loop {
-                let ssh_ended = app.process_ssh_events::<B>(terminal)?;
-                if ssh_ended || !app.ssh_ready_for_terminal {
-                    tracing::info!("SSH session ended or interrupted - resuming main loop");
+            while app.ssh_ready_for_terminal {
+                if app.await_next_ssh_event::<B>(terminal).await? {
                     break;
                 }
-                tokio::time::sleep(SSH_SUSPEND_POLL).await;
             }
+            tracing::info!("SSH session ended - resuming main loop");
 
             terminal.draw(|f| draw::<B>(f, &mut app))?;
             continue;

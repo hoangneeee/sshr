@@ -6,7 +6,6 @@ use crate::{config::ConfigManager, models::SshHost};
 
 use crate::app_event::{SftpEvent, SshEvent, TransferEvent};
 use ratatui::widgets::ListState;
-use std::sync::mpsc::Receiver;
 use tokio::sync::mpsc as tokio_mpsc;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -48,12 +47,12 @@ pub struct App {
     pub is_connecting: bool,
     pub connecting_host: Option<SshHost>,
     pub ssh_ready_for_terminal: bool,
-    pub ssh_receiver: Option<Receiver<SshEvent>>,
+    pub ssh_receiver: Option<tokio_mpsc::Receiver<SshEvent>>,
 
     // SFTP Mode
     pub is_sftp_loading: bool,
     pub sftp_ready_for_terminal: bool,
-    pub sftp_receiver: Option<Receiver<SftpEvent>>,
+    pub sftp_receiver: Option<tokio_mpsc::Receiver<SftpEvent>>,
     pub sftp_state: Option<AppSftpState>,
     pub transfer_receiver: Option<tokio_mpsc::Receiver<TransferEvent>>,
 

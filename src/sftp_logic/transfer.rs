@@ -7,10 +7,9 @@ use crate::constants::{
 use anyhow::{Context, Result};
 use shell_escape::unix::escape;
 use std::borrow::Cow;
-use std::fs::File;
-use std::io::Read;
 use std::path::Path;
-use tokio::io::AsyncWriteExt;
+use tokio::fs::File;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 
 impl AppSftpState {
@@ -157,9 +156,10 @@ impl AppSftpState {
     where
         F: FnMut(u64, u64) + Send + 'static,
     {
-        let file = File::open(local_path).context("Failed to open local file")?;
-        let metadata = file.metadata().context("Failed to get file metadata")?;
-        let total_size = metadata.len();
+        let total_size = tokio::fs::metadata(local_path)
+            .await
+            .context("Failed to read local file metadata")?
+            .len();
 
         let escaped_remote_path = escape(Cow::Borrowed(remote_path)).into_owned();
         let mut command = Command::new("scp")
@@ -182,12 +182,20 @@ impl AppSftpState {
             .take()
             .ok_or_else(|| anyhow::anyhow!("Failed to get scp stdin"))?;
 
-        let mut file = File::open(local_path).context("Failed to reopen local file")?;
-        let mut buffer = [0u8; TRANSFER_BUFFER_SIZE];
-        let mut uploaded = 0;
+        // NOTE: scp(1) reads the source from its positional argument, not stdin.
+        // This loop drives the progress callback but doesn't actually feed scp.
+        // Phase 4 will replace this with russh-sftp for accurate progress.
+        let mut file = File::open(local_path)
+            .await
+            .context("Failed to open local file")?;
+        let mut buffer = vec![0u8; TRANSFER_BUFFER_SIZE];
+        let mut uploaded = 0u64;
 
         loop {
-            let bytes_read = file.read(&mut buffer).context("Failed to read from file")?;
+            let bytes_read = file
+                .read(&mut buffer)
+                .await
+                .context("Failed to read from file")?;
             if bytes_read == 0 {
                 break;
             }
@@ -199,9 +207,6 @@ impl AppSftpState {
             uploaded += bytes_read as u64;
 
             progress_callback(uploaded, total_size);
-
-            // Allow other tasks to run
-            tokio::task::yield_now().await;
         }
 
         drop(stdin); // Close stdin to signal end of data
@@ -230,6 +235,7 @@ impl AppSftpState {
         progress_callback: F,
     ) -> Result<()> {
         let escaped_remote_path = escape(Cow::Borrowed(remote_path)).into_owned();
+
         // First, get the remote file size
         let size_output = Command::new("ssh")
             .arg("-p")
@@ -248,10 +254,7 @@ impl AppSftpState {
 
         if !size_output.status.success() {
             let stderr = String::from_utf8_lossy(&size_output.stderr);
-            return Err(anyhow::anyhow!(
-                "Failed to get remote file size: {}",
-                stderr
-            ));
+            return Err(anyhow::anyhow!("Failed to get remote file size: {}", stderr));
         }
 
         let total_size = String::from_utf8_lossy(&size_output.stdout)
@@ -261,108 +264,61 @@ impl AppSftpState {
 
         // Create parent directory if it doesn't exist
         if let Some(parent) = local_path.parent() {
-            tokio::fs::create_dir_all(parent).await
+            tokio::fs::create_dir_all(parent)
+                .await
                 .context("Failed to create local directory")?;
         }
 
-        // Start the download in a separate task
-        let download_handle = {
-            let local_path = local_path.to_path_buf();
-            let user = user.to_string();
-            let host = host.to_string();
-            let strict_host_key_checking = strict_host_key_checking.to_string();
-
-            tokio::spawn(async move {
-                Command::new("scp")
-                    .arg("-P")
-                    .arg(port.to_string())
-                    .arg("-o")
-                    .arg(format!("ConnectTimeout={}", SSH_CONNECT_TIMEOUT_S))
-                    .arg("-o")
-                    .arg(format!("StrictHostKeyChecking={}", strict_host_key_checking))
-                    .arg("-o")
-                    .arg("LogLevel=ERROR")
-                    .arg(format!("{}@{}:{}", user, host, escaped_remote_path))
-                    .arg(&local_path)
-                    .status()
-                    .await
-            })
-        };
-
-        // Monitor the download progress
-        let start_time = std::time::Instant::now();
-        let mut last_size = 0u64;
-        
         // Initial progress update
         progress_callback(0, total_size);
 
-        // Create a channel for the download task to signal completion
-        let (tx, mut rx) = tokio::sync::oneshot::channel();
-        
-        // Spawn a task to wait for the download to complete
-        let download_task = tokio::spawn({
-            let download_handle = download_handle;
-            async move {
-                match download_handle.await {
-                    Ok(status_result) => {
-                        let _ = tx.send(status_result);
-                    }
-                    Err(e) => {
-                        let _ = tx.send(Err(e.into()));
-                    }
-                }
-            }
-        });
+        // Drive the scp child to completion while polling the local file size
+        // for progress. tokio::select! lets us wait on the process exit OR a
+        // poll tick, no oneshot/abort dance required.
+        let scp_fut = Command::new("scp")
+            .arg("-P")
+            .arg(port.to_string())
+            .arg("-o")
+            .arg(format!("ConnectTimeout={}", SSH_CONNECT_TIMEOUT_S))
+            .arg("-o")
+            .arg(format!("StrictHostKeyChecking={}", strict_host_key_checking))
+            .arg("-o")
+            .arg("LogLevel=ERROR")
+            .arg(format!("{}@{}:{}", user, host, escaped_remote_path))
+            .arg(local_path)
+            .status();
+        tokio::pin!(scp_fut);
 
-        // Monitor progress until download completes
-        let mut download_complete = false;
-        while !download_complete {
-            // Check if download is complete
-            match rx.try_recv() {
-                Ok(Ok(status)) => {
+        let start = std::time::Instant::now();
+        let mut last_size = 0u64;
+
+        loop {
+            tokio::select! {
+                status = &mut scp_fut => {
+                    let status = status.context("scp download did not run to completion")?;
                     if !status.success() {
-                        download_task.abort();
-                        return Err(anyhow::anyhow!("SCP download failed with status: {}", status));
+                        return Err(anyhow::anyhow!(
+                            "SCP download failed with status: {}", status
+                        ));
                     }
-                    download_complete = true;
+                    progress_callback(total_size, total_size);
+                    return Ok(());
                 }
-                Ok(Err(e)) => {
-                    download_task.abort();
-                    return Err(e.into());
+                _ = tokio::time::sleep(TRANSFER_PROGRESS_POLL) => {
+                    if let Ok(meta) = tokio::fs::metadata(local_path).await {
+                        let current = meta.len();
+                        if current > last_size {
+                            last_size = current;
+                            progress_callback(current, total_size);
+                        }
+                    }
+                    if last_size == 0
+                        && start.elapsed().as_secs() > DOWNLOAD_NO_PROGRESS_TIMEOUT_S
+                    {
+                        return Err(anyhow::anyhow!("Download timed out with no progress"));
+                    }
                 }
-                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
-                    // Download still in progress
-                }
-                Err(_) => {
-                    download_task.abort();
-                    return Err(anyhow::anyhow!("Download channel error"));
-                }
-            }
-
-            // Get current file size
-            if let Ok(metadata) = tokio::fs::metadata(local_path).await {
-                let current_size = metadata.len();
-                if current_size > last_size {
-                    progress_callback(current_size, total_size);
-                    last_size = current_size;
-                }
-            }
-
-            // Check if download is taking too long without progress
-            if start_time.elapsed().as_secs() > DOWNLOAD_NO_PROGRESS_TIMEOUT_S && last_size == 0 {
-                download_task.abort();
-                return Err(anyhow::anyhow!("Download timed out with no progress"));
-            }
-
-            // Don't check too frequently
-            if !download_complete {
-                tokio::time::sleep(TRANSFER_PROGRESS_POLL).await;
             }
         }
-
-        // Final progress update
-        progress_callback(total_size, total_size);
-
-        Ok(())
     }
 }
