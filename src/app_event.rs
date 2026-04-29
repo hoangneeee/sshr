@@ -11,7 +11,7 @@ pub enum SshEvent {
 #[derive(Debug, Clone)]
 pub enum SftpEvent {
     Connecting,
-    PreConnected(AppSftpState),
+    PreConnected(Box<AppSftpState>),
     Connected,
     #[allow(dead_code)]
     Disconnected,
