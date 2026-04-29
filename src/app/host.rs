@@ -6,6 +6,29 @@ use std::fs;
 use std::net::ToSocketAddrs;
 
 impl App {
+    /// Open the hosts.toml file in the user's preferred editor and reload
+    /// hosts after it closes.
+    pub fn open_hosts_editor(&mut self) -> Result<()> {
+        let hosts_path = self.ctx.config_manager.get_hosts_path();
+
+        if !hosts_path.exists() {
+            if let Some(parent) = hosts_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(hosts_path, "")?;
+        }
+
+        if let Err(e) = open::that(hosts_path) {
+            tracing::error!("Failed to open editor: {}", e);
+            return Err(anyhow::anyhow!("Failed to open editor: {}", e));
+        }
+
+        self.load_all_hosts()?;
+        Ok(())
+    }
+}
+
+impl App {
     pub fn load_all_hosts(&mut self) -> Result<()> {
         self.load_ssh_config()
             .context("Failed to load SSH config")?;

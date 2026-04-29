@@ -3,7 +3,6 @@ use crate::sftp_logic::types::{
 };
 use crate::theme::ResolvedTheme;
 use ratatui::{
-    backend::Backend,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
@@ -11,7 +10,7 @@ use ratatui::{
     Frame,
 };
 
-pub fn draw_sftp<B: Backend>(f: &mut Frame, sftp_state: &mut AppSftpState, theme: &ResolvedTheme) {
+pub fn draw_sftp(f: &mut Frame, sftp_state: &mut AppSftpState, theme: &ResolvedTheme) {
     let main_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -27,7 +26,7 @@ pub fn draw_sftp<B: Backend>(f: &mut Frame, sftp_state: &mut AppSftpState, theme
         .split(main_chunks[0]);
 
     // Draw local panel (left)
-    draw_file_panel::<B>(
+    draw_file_panel(
         f,
         panels[0],
         &mut sftp_state.local_list_state,
@@ -39,7 +38,7 @@ pub fn draw_sftp<B: Backend>(f: &mut Frame, sftp_state: &mut AppSftpState, theme
     );
 
     // Draw remote panel (right)
-    draw_file_panel::<B>(
+    draw_file_panel(
         f,
         panels[1],
         &mut sftp_state.remote_list_state,
@@ -51,25 +50,25 @@ pub fn draw_sftp<B: Backend>(f: &mut Frame, sftp_state: &mut AppSftpState, theme
     );
 
     // Draw footer with controls
-    draw_sftp_footer::<B>(f, main_chunks[1], sftp_state, theme);
+    draw_sftp_footer(f, main_chunks[1], sftp_state, theme);
 
     // Draw status message if exists
     if let Some(ref message) = sftp_state.status_message {
-        draw_status_overlay::<B>(f, message, theme);
+        draw_status_overlay(f, message, theme);
     }
 
     // Draw upload progress if active
     if let Some(ref progress) = sftp_state.upload_progress {
-        draw_upload_progress::<B>(f, progress, theme);
+        draw_upload_progress(f, progress, theme);
     }
 
     // Draw download progress if active
     if let Some(ref progress) = sftp_state.download_progress {
-        draw_download_progress::<B>(f, progress, theme);
+        draw_download_progress(f, progress, theme);
     }
 }
 
-fn draw_file_panel<B: Backend>(
+fn draw_file_panel(
     f: &mut Frame,
     area: Rect,
     list_state: &mut ListState,
@@ -173,7 +172,7 @@ fn draw_file_panel<B: Backend>(
     f.render_stateful_widget(list, area, list_state);
 }
 
-fn draw_sftp_footer<B: Backend>(f: &mut Frame, area: Rect, sftp_state: &AppSftpState, theme: &ResolvedTheme) {
+fn draw_sftp_footer(f: &mut Frame, area: Rect, sftp_state: &AppSftpState, theme: &ResolvedTheme) {
     let footer_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -208,7 +207,7 @@ fn draw_sftp_footer<B: Backend>(f: &mut Frame, area: Rect, sftp_state: &AppSftpS
     f.render_widget(status_help, footer_chunks[2]);
 }
 
-fn draw_status_overlay<B: Backend>(f: &mut Frame, message: &str, theme: &ResolvedTheme) {
+fn draw_status_overlay(f: &mut Frame, message: &str, theme: &ResolvedTheme) {
     let area = centered_rect(60, 5, f.size());
 
     let block = Block::default()
@@ -230,7 +229,7 @@ fn draw_status_overlay<B: Backend>(f: &mut Frame, message: &str, theme: &Resolve
     f.render_widget(paragraph, area);
 }
 
-fn draw_upload_progress<B: Backend>(f: &mut Frame, progress: &UploadProgress, theme: &ResolvedTheme) {
+fn draw_upload_progress(f: &mut Frame, progress: &UploadProgress, theme: &ResolvedTheme) {
     // Use a wider area to accommodate the file name
     let area = bottom_right_rect(40, 6, f.size());
 
@@ -278,7 +277,7 @@ fn draw_upload_progress<B: Backend>(f: &mut Frame, progress: &UploadProgress, th
     f.render_widget(gauge, area);
 }
 
-fn draw_download_progress<B: Backend>(f: &mut Frame, progress: &DownloadProgress, theme: &ResolvedTheme) {
+fn draw_download_progress(f: &mut Frame, progress: &DownloadProgress, theme: &ResolvedTheme) {
     // Use a wider area to accommodate the file name
     let area = bottom_right_rect(40, 6, f.size());
 

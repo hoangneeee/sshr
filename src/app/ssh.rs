@@ -2,8 +2,8 @@ use crate::app::session::{SessionState, SshSession, SshStage};
 use crate::app::App;
 use crate::app_event::SshEvent;
 use crate::constants::{
-    SSH_CONNECT_TIMEOUT_S, SSH_KEEPALIVE_COUNT_MAX, SSH_KEEPALIVE_INTERVAL_S,
-    SSH_PRE_LAUNCH_DELAY, SSH_TEST_TIMEOUT_S,
+    SSH_CONNECT_TIMEOUT_S, SSH_EVENT_CHANNEL_BUFFER, SSH_KEEPALIVE_COUNT_MAX,
+    SSH_KEEPALIVE_INTERVAL_S, SSH_PRE_LAUNCH_DELAY, SSH_TEST_TIMEOUT_S,
 };
 use crate::models::SshHost;
 use anyhow::{Context, Result};
@@ -16,10 +16,11 @@ use ratatui::backend::Backend;
 use ratatui::Terminal;
 use std::thread;
 use std::time::Instant;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::{self, Sender};
 
 impl App {
-    pub(crate) fn transition_to_ssh_mode<B: Backend>(
+    /// Suspend the TUI for the duration of a foreground SSH child process.
+    pub fn transition_to_ssh_mode<B: Backend>(
         &mut self,
         terminal: &mut Terminal<B>,
     ) -> Result<()> {
@@ -35,7 +36,8 @@ impl App {
         Ok(())
     }
 
-    pub(crate) fn restore_tui_mode<B: Backend>(
+    /// Re-enable the TUI after the SSH child process exits.
+    pub fn restore_tui_mode<B: Backend>(
         &mut self,
         terminal: &mut Terminal<B>,
     ) -> Result<()> {
@@ -51,7 +53,27 @@ impl App {
         Ok(())
     }
 
-    pub fn ssh_thread_worker(
+    /// Begin connecting to `host` over SSH. Sets `SessionState::Ssh(Connecting)`,
+    /// emits a status banner, and spawns the worker that drives the ssh child.
+    pub fn connect_ssh(&mut self, host: SshHost) {
+        tracing::info!("Connecting to host: {:?}", host.alias);
+        self.ui.status_message =
+            Some((format!("Connecting to {}...", host.alias), Instant::now()));
+
+        let (sender, receiver) = mpsc::channel::<SshEvent>(SSH_EVENT_CHANNEL_BUFFER);
+        self.session = SessionState::Ssh(SshSession {
+            host: host.clone(),
+            stage: SshStage::Connecting,
+            event_rx: receiver,
+        });
+
+        let strict = self.ctx.strict_host_key_checking.clone();
+        tokio::task::spawn_blocking(move || {
+            Self::ssh_thread_worker(sender, host, strict);
+        });
+    }
+
+    fn ssh_thread_worker(
         sender: Sender<SshEvent>,
         host: SshHost,
         strict_host_key_checking: String,
@@ -165,98 +187,6 @@ impl App {
             let error_msg = format!("SSH command failed with status: {}", status);
             tracing::error!("{}", error_msg);
             Err(anyhow::anyhow!(error_msg))
-        }
-    }
-
-    /// Apply a single SshEvent. Returns `true` if the SSH session ended
-    /// (caller should redraw the host list).
-    fn apply_ssh_event<B: Backend>(
-        &mut self,
-        event: SshEvent,
-        terminal: &mut Terminal<B>,
-    ) -> Result<bool> {
-        match event {
-            SshEvent::Connecting => {
-                self.ui.status_message =
-                    Some(("Testing connection...".to_string(), Instant::now()));
-                Ok(false)
-            }
-            SshEvent::Connected => {
-                self.ui.status_message = Some((
-                    "Connection successful! Launching SSH...".to_string(),
-                    Instant::now(),
-                ));
-                self.transition_to_ssh_mode(terminal)?;
-                if let Some(s) = self.session.ssh_session_mut() {
-                    s.stage = SshStage::Active;
-                }
-                Ok(false)
-            }
-            SshEvent::Error(err) => {
-                tracing::error!("SSH error: {}", err);
-                self.ui.status_message =
-                    Some((format!("SSH Error: {}", err), Instant::now()));
-                self.session.reset();
-
-                if let Err(e) = self.restore_tui_mode(terminal) {
-                    tracing::error!("Failed to restore TUI mode after SSH error: {}", e);
-                }
-                Ok(false)
-            }
-            SshEvent::Disconnected => {
-                tracing::info!("SSH session disconnected, restoring TUI");
-                self.restore_tui_mode(terminal)?;
-                self.session.reset();
-                self.ui.status_message =
-                    Some(("SSH session ended".to_string(), Instant::now()));
-                Ok(true)
-            }
-        }
-    }
-
-    /// Begin an SSH session against `host`. Replaces any existing session.
-    pub fn start_ssh_session(&mut self, host: SshHost) -> Sender<SshEvent> {
-        use crate::constants::SSH_EVENT_CHANNEL_BUFFER;
-        use tokio::sync::mpsc;
-        let (sender, receiver) =
-            mpsc::channel::<SshEvent>(SSH_EVENT_CHANNEL_BUFFER);
-        self.session = SessionState::Ssh(SshSession {
-            host,
-            stage: SshStage::Connecting,
-            event_rx: receiver,
-        });
-        sender
-    }
-
-    /// Non-blocking poll: drain at most one pending SSH event.
-    pub fn process_ssh_events<B: Backend>(
-        &mut self,
-        terminal: &mut Terminal<B>,
-    ) -> Result<bool> {
-        let event = self
-            .session
-            .ssh_session_mut()
-            .and_then(|s| s.event_rx.try_recv().ok());
-        match event {
-            Some(ev) => self.apply_ssh_event(ev, terminal),
-            None => Ok(false),
-        }
-    }
-
-    /// Blocking await: wait for the next SSH event, then process it.
-    /// Returns `Ok(true)` when the SSH session has ended.
-    pub async fn await_next_ssh_event<B: Backend>(
-        &mut self,
-        terminal: &mut Terminal<B>,
-    ) -> Result<bool> {
-        let event = match self.session.ssh_session_mut() {
-            Some(s) => s.event_rx.recv().await,
-            None => return Ok(true),
-        };
-        match event {
-            Some(ev) => self.apply_ssh_event(ev, terminal),
-            // Sender dropped without a Disconnected event — treat as end-of-session.
-            None => Ok(true),
         }
     }
 }
