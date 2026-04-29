@@ -13,9 +13,9 @@ use crossterm::{
 };
 use ratatui::backend::Backend;
 use ratatui::Terminal;
-use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Instant;
+use tokio::sync::mpsc::Sender;
 
 impl App {
     pub(crate) fn transition_to_ssh_mode<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
@@ -47,7 +47,7 @@ impl App {
     pub fn ssh_thread_worker(sender: Sender<SshEvent>, host: SshHost, strict_host_key_checking: String) {
         tracing::info!("SSH thread started for host: {}", host.alias);
 
-        if sender.send(SshEvent::Connecting).is_err() {
+        if sender.blocking_send(SshEvent::Connecting).is_err() {
             tracing::error!("Failed to send Connecting event");
             return;
         }
@@ -56,18 +56,18 @@ impl App {
             Ok(_) => {
                 tracing::info!("SSH connection test successful for {}", host.alias);
 
-                if sender.send(SshEvent::Connected).is_ok() {
+                if sender.blocking_send(SshEvent::Connected).is_ok() {
                     thread::sleep(SSH_PRE_LAUNCH_DELAY);
 
                     tracing::info!("Starting SSH session for {}", host.alias);
                     match Self::execute_ssh_blocking(&host) {
                         Ok(_) => {
                             tracing::info!("SSH session ended normally for {}", host.alias);
-                            let _ = sender.send(SshEvent::Disconnected);
+                            let _ = sender.blocking_send(SshEvent::Disconnected);
                         }
                         Err(e) => {
                             tracing::error!("SSH session error for {}: {}", host.alias, e);
-                            let _ = sender.send(SshEvent::Error(e.to_string()));
+                            let _ = sender.blocking_send(SshEvent::Error(e.to_string()));
                         }
                     }
                 } else {
@@ -76,7 +76,7 @@ impl App {
             }
             Err(e) => {
                 tracing::error!("SSH connection test failed for {}: {}", host.alias, e);
-                let _ = sender.send(SshEvent::Error(format!("Connection test failed: {}", e)));
+                let _ = sender.blocking_send(SshEvent::Error(format!("Connection test failed: {}", e)));
             }
         }
 
@@ -156,54 +156,82 @@ impl App {
         }
     }
 
-    pub fn process_ssh_events<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<bool> {
-        if let Some(receiver) = &self.ssh_receiver {
-            if let Ok(event) = receiver.try_recv() {
-                match event {
-                    SshEvent::Connecting => {
-                        self.status_message =
-                            Some(("Testing connection...".to_string(), Instant::now()));
-                        return Ok(false);
-                    }
-                    SshEvent::Connected => {
-                        self.status_message = Some((
-                            "Connection successful! Launching SSH...".to_string(),
-                            Instant::now(),
-                        ));
+    /// Apply a single SshEvent. Returns `true` if the SSH session ended
+    /// (caller should redraw the host list).
+    fn apply_ssh_event<B: Backend>(
+        &mut self,
+        event: SshEvent,
+        terminal: &mut Terminal<B>,
+    ) -> Result<bool> {
+        match event {
+            SshEvent::Connecting => {
+                self.status_message =
+                    Some(("Testing connection...".to_string(), Instant::now()));
+                Ok(false)
+            }
+            SshEvent::Connected => {
+                self.status_message = Some((
+                    "Connection successful! Launching SSH...".to_string(),
+                    Instant::now(),
+                ));
+                self.transition_to_ssh_mode(terminal)?;
+                self.ssh_ready_for_terminal = true;
+                Ok(false)
+            }
+            SshEvent::Error(err) => {
+                tracing::error!("SSH error: {}", err);
+                self.is_connecting = false;
+                self.connecting_host = None;
+                self.ssh_ready_for_terminal = false;
+                self.ssh_receiver = None;
+                self.status_message = Some((format!("SSH Error: {}", err), Instant::now()));
 
-                        self.transition_to_ssh_mode(terminal)?;
-                        self.ssh_ready_for_terminal = true;
-
-                        return Ok(false);
-                    }
-                    SshEvent::Error(err) => {
-                        tracing::error!("SSH error: {}", err);
-                        self.is_connecting = false;
-                        self.connecting_host = None;
-                        self.ssh_ready_for_terminal = false;
-                        self.ssh_receiver = None;
-                        self.status_message = Some((format!("SSH Error: {}", err), Instant::now()));
-
-                        if let Err(e) = self.restore_tui_mode(terminal) {
-                            tracing::error!("Failed to restore TUI mode after SSH error: {}", e);
-                        }
-                        return Ok(false);
-                    }
-                    SshEvent::Disconnected => {
-                        tracing::info!("SSH session disconnected, restoring TUI");
-
-                        self.restore_tui_mode(terminal)?;
-                        self.is_connecting = false;
-                        self.connecting_host = None;
-                        self.ssh_ready_for_terminal = false;
-                        self.ssh_receiver = None;
-                        self.status_message =
-                            Some(("SSH session ended".to_string(), Instant::now()));
-                        return Ok(true);
-                    }
+                if let Err(e) = self.restore_tui_mode(terminal) {
+                    tracing::error!("Failed to restore TUI mode after SSH error: {}", e);
                 }
+                Ok(false)
+            }
+            SshEvent::Disconnected => {
+                tracing::info!("SSH session disconnected, restoring TUI");
+                self.restore_tui_mode(terminal)?;
+                self.is_connecting = false;
+                self.connecting_host = None;
+                self.ssh_ready_for_terminal = false;
+                self.ssh_receiver = None;
+                self.status_message =
+                    Some(("SSH session ended".to_string(), Instant::now()));
+                Ok(true)
             }
         }
-        Ok(false)
+    }
+
+    /// Non-blocking poll: drain at most one pending SSH event.
+    pub fn process_ssh_events<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<bool> {
+        let event = self
+            .ssh_receiver
+            .as_mut()
+            .and_then(|rx| rx.try_recv().ok());
+        match event {
+            Some(ev) => self.apply_ssh_event(ev, terminal),
+            None => Ok(false),
+        }
+    }
+
+    /// Blocking await: wait for the next SSH event, then process it.
+    /// Returns `Ok(true)` when the SSH session has ended (caller should
+    /// resume the main loop).
+    pub async fn await_next_ssh_event<B: Backend>(
+        &mut self,
+        terminal: &mut Terminal<B>,
+    ) -> Result<bool> {
+        let event = match self.ssh_receiver.as_mut() {
+            Some(rx) => rx.recv().await,
+            None => return Ok(true),
+        };
+        match event {
+            Some(ev) => self.apply_ssh_event(ev, terminal),
+            // Sender dropped without a Disconnected event — treat as end-of-session.
+            None => Ok(true),
+        }
     }
 }

@@ -1,12 +1,12 @@
 use crate::app::ActivePanel;
 use crate::app::{App, InputMode};
 use crate::app_event::SshEvent;
+use crate::constants::SSH_EVENT_CHANNEL_BUFFER;
 use anyhow::Result;
 use ratatui::backend::Backend;
 use ratatui::Terminal;
-use std::sync::mpsc;
-use std::thread;
 use std::time::Instant;
+use tokio::sync::mpsc;
 
 impl App {
     /// Cycle to next group (wrap-around) and reset host selection.
@@ -32,8 +32,8 @@ impl App {
             // Store the connecting host
             self.connecting_host = Some(selected_host.clone());
 
-            // Tạo channel để communication
-            let (sender, receiver) = mpsc::channel::<SshEvent>();
+            // Channel for SSH worker -> UI events
+            let (sender, receiver) = mpsc::channel::<SshEvent>(SSH_EVENT_CHANNEL_BUFFER);
             self.ssh_receiver = Some(receiver);
 
             // Set connecting state
@@ -44,10 +44,11 @@ impl App {
                 Instant::now(),
             ));
 
-            // Spawn SSH thread
+            // Worker shells out to ssh (blocking) — run on tokio's blocking pool
+            // so we don't tie up an executor thread.
             let host_clone = selected_host.clone();
             let strict_host_key_checking = self.strict_host_key_checking.clone();
-            thread::spawn(move || {
+            tokio::task::spawn_blocking(move || {
                 Self::ssh_thread_worker(sender, host_clone, strict_host_key_checking);
             });
 
