@@ -30,10 +30,14 @@ impl App {
 
 impl App {
     pub fn load_all_hosts(&mut self) -> Result<()> {
-        self.load_ssh_config()
-            .context("Failed to load SSH config")?;
+        // Custom hosts (hosts.toml) are loaded first so they take precedence
+        // over system hosts (~/.ssh/config) when aliases collide. A user who
+        // groups a host in hosts.toml has expressed explicit intent, whereas
+        // ~/.ssh/config is loaded passively.
         self.load_custom_hosts()
             .context("Failed to load custom hosts")?;
+        self.load_ssh_config()
+            .context("Failed to load SSH config")?;
         self.handle_duplicate_hosts();
 
         // Update groups after loading all hosts
@@ -148,19 +152,21 @@ impl App {
 
     /// Load custom hosts from hosts.toml.
     pub fn load_custom_hosts(&mut self) -> Result<()> {
+        // Drop previously-loaded custom hosts so reloads don't accumulate.
+        self.hosts.hosts.retain(|h| h.group.is_none());
+
         match self.ctx.config_manager.load_hosts() {
             Ok(mut custom_hosts) => {
-                let mut existing_aliases: HashSet<String> =
-                    self.hosts.hosts.iter().map(|h| h.alias.clone()).collect();
+                let mut seen_aliases: HashSet<String> = HashSet::new();
                 custom_hosts.retain(|host| {
-                    if existing_aliases.contains(&host.alias) {
+                    if seen_aliases.contains(&host.alias) {
                         tracing::warn!(
-                            "Skipping custom host '{}' due to duplicate alias. System host will be used.",
+                            "Skipping duplicate custom host '{}' (defined more than once in hosts.toml).",
                             host.alias
                         );
                         false
                     } else {
-                        existing_aliases.insert(host.alias.clone());
+                        seen_aliases.insert(host.alias.clone());
                         true
                     }
                 });
