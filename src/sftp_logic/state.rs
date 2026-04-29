@@ -1,4 +1,4 @@
-use super::types::{AppSftpState, PanelSide, UploadProgress, DownloadProgress};
+use super::types::{AppSftpState, PanelSide};
 use anyhow::{Context, Result};
 use ratatui::widgets::ListState;
 use tokio::sync::mpsc;
@@ -37,7 +37,7 @@ impl AppSftpState {
             status_message_time: None,
             upload_progress: None,
             download_progress: None,
-            transfer_tx: Some(transfer_tx),
+            transfer_tx,
         };
 
         // Load initial directory contents

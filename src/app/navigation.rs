@@ -1,6 +1,5 @@
 use crate::app::App;
 use crate::app::types::ActivePanel;
-use crate::models::SshHost;
 
 impl App {
     pub fn switch_panel(&mut self) {
@@ -64,12 +63,6 @@ impl App {
             self.selected_host = 0;
             self.host_list_state.select(None);
         }
-    }
-
-    pub fn get_current_host(&self) -> Option<&SshHost> {
-        self.hosts_in_current_group
-            .get(self.selected_host)
-            .and_then(|&idx| self.hosts.get(idx))
     }
 
     pub fn select_next(&mut self) {

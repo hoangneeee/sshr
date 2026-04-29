@@ -9,32 +9,21 @@ use std::thread;
 use std::time::Instant;
 
 impl App {
-    // Group navigation and management
-    pub fn next_group(&mut self) {
-        if !self.groups.is_empty() {
-            self.selected_group = (self.selected_group + 1) % self.groups.len();
-            self.group_list_state.select(Some(self.selected_group));
-            self.update_hosts_for_selected_group();
-            self.selected_host = 0;
-            self.host_list_state.select(Some(self.selected_host));
+    /// Cycle to next group (wrap-around) and reset host selection.
+    fn cycle_group(&mut self, forward: bool) {
+        if self.groups.is_empty() {
+            return;
         }
+        let total = self.groups.len();
+        self.selected_group = if forward {
+            (self.selected_group + 1) % total
+        } else {
+            (self.selected_group + total - 1) % total
+        };
+        self.group_list_state.select(Some(self.selected_group));
+        self.update_hosts_for_selected_group();
     }
 
-    pub fn previous_group(&mut self) {
-        if !self.groups.is_empty() {
-            self.selected_group = (self.selected_group + self.groups.len() - 1) % self.groups.len();
-            self.group_list_state.select(Some(self.selected_group));
-            self.update_hosts_for_selected_group();
-            self.selected_host = 0;
-            self.host_list_state.select(Some(self.selected_host));
-        }
-    }
-
-    pub fn get_current_group(&self) -> Option<&str> {
-        self.groups.get(self.selected_group).map(|s| s.as_str())
-    }
-
-    // update_hosts_for_selected_group is now implemented in state.rs
     // Handle key
     pub fn handle_key_enter<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
         if let Some(selected_host) = self.get_current_selected_host().cloned() {
@@ -110,7 +99,7 @@ impl App {
 
     pub fn handle_key_right(&mut self) -> Result<()> {
         match self.active_panel {
-            ActivePanel::Groups => self.next_group(),
+            ActivePanel::Groups => self.cycle_group(true),
             ActivePanel::Hosts => self.select_next(),
         }
         Ok(())
@@ -118,14 +107,14 @@ impl App {
 
     pub fn handle_key_left(&mut self) -> Result<()> {
         match self.active_panel {
-            ActivePanel::Groups => self.previous_group(),
+            ActivePanel::Groups => self.cycle_group(false),
             ActivePanel::Hosts => self.select_previous(),
         }
         Ok(())
     }
 
     pub fn handle_shift_tab(&mut self) -> Result<()> {
-        self.previous_group();
+        self.cycle_group(false);
         Ok(())
     }
 }

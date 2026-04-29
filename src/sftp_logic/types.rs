@@ -68,14 +68,6 @@ pub struct AppSftpState {
     pub download_progress: Option<DownloadProgress>,
 
     // Transfer event sender
-    pub transfer_tx: Option<mpsc::Sender<TransferEvent>>,
+    pub transfer_tx: mpsc::Sender<TransferEvent>,
 }
 
-impl FileItem {
-    pub fn name(&self) -> &str {
-        match self {
-            FileItem::Directory { name } => name,
-            FileItem::File { name, .. } => name,
-        }
-    }
-}

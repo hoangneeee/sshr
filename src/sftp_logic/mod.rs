@@ -7,4 +7,4 @@ mod transfer;
 pub mod types;
 
 pub use types::AppSftpState;
-pub use types::{FileItem, PanelSide};
+pub use types::FileItem;

@@ -1,5 +1,9 @@
 use crate::app::App;
 use crate::app_event::SshEvent;
+use crate::constants::{
+    SSH_CONNECT_TIMEOUT_S, SSH_KEEPALIVE_COUNT_MAX, SSH_KEEPALIVE_INTERVAL_S,
+    SSH_PRE_LAUNCH_DELAY, SSH_TEST_TIMEOUT_S,
+};
 use crate::models::SshHost;
 use anyhow::{Context, Result};
 use crossterm::{
@@ -11,7 +15,7 @@ use ratatui::backend::Backend;
 use ratatui::Terminal;
 use std::sync::mpsc::Sender;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 impl App {
     pub(crate) fn transition_to_ssh_mode<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
@@ -53,7 +57,7 @@ impl App {
                 tracing::info!("SSH connection test successful for {}", host.alias);
 
                 if sender.send(SshEvent::Connected).is_ok() {
-                    thread::sleep(Duration::from_millis(200));
+                    thread::sleep(SSH_PRE_LAUNCH_DELAY);
 
                     tracing::info!("Starting SSH session for {}", host.alias);
                     match Self::execute_ssh_blocking(&host) {
@@ -96,7 +100,7 @@ impl App {
             .arg("-p")
             .arg(&port_str)
             .arg("-o")
-            .arg("ConnectTimeout=5")
+            .arg(format!("ConnectTimeout={}", SSH_TEST_TIMEOUT_S))
             .arg("-o")
             .arg("BatchMode=yes")
             .arg("-o")
@@ -131,11 +135,11 @@ impl App {
             .arg("-p")
             .arg(&port_str)
             .arg("-o")
-            .arg("ConnectTimeout=30")
+            .arg(format!("ConnectTimeout={}", SSH_CONNECT_TIMEOUT_S))
             .arg("-o")
-            .arg("ServerAliveInterval=60")
+            .arg(format!("ServerAliveInterval={}", SSH_KEEPALIVE_INTERVAL_S))
             .arg("-o")
-            .arg("ServerAliveCountMax=3")
+            .arg(format!("ServerAliveCountMax={}", SSH_KEEPALIVE_COUNT_MAX))
             .stdin(std::process::Stdio::inherit())
             .stdout(std::process::Stdio::inherit())
             .stderr(std::process::Stdio::inherit())

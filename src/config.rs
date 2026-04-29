@@ -75,13 +75,17 @@ impl Default for Theme {
 
 impl Default for AppConfig {
     fn default() -> Self {
+        // Default SSH config path: ~/.ssh/config when HOME is available,
+        // otherwise fall back to the conventional relative path.
+        let ssh_file_config = dirs::home_dir()
+            .map(|h| h.join(".ssh").join("config"))
+            .and_then(|p| p.to_str().map(String::from))
+            .unwrap_or_else(|| "~/.ssh/config".to_string());
 
-        // Set default ssh config path
-        let ssh_config_path = dirs::home_dir().unwrap().join(".ssh").join("config");
         Self {
             default_theme: "default".to_string(),
             themes: vec![Theme::default()],
-            ssh_file_config: ssh_config_path.to_str().unwrap().to_string(),
+            ssh_file_config,
             strict_host_key_checking: "accept-new".to_string(),
         }
     }
@@ -95,8 +99,6 @@ impl Default for HostsConfig {
 
 #[derive(Debug)]
 pub struct ConfigManager {
-    #[allow(dead_code)]
-    config_dir: PathBuf,
     config_file: PathBuf,
     hosts_file: PathBuf,
 }
@@ -116,15 +118,10 @@ impl ConfigManager {
         let hosts_file = config_dir.join("hosts.toml");
 
         Ok(Self {
-            config_dir,
             config_file,
             hosts_file,
         })
     }
-
-    // pub fn get_config_dir(&self) -> &Path {
-    //     &self.config_dir
-    // }
 
     pub fn load_config(&self) -> Result<AppConfig> {
         // If config file doesn't exist or is empty, create it with default values
@@ -162,24 +159,6 @@ impl ConfigManager {
         Ok(())
     }
 
-    // TODO: Add theme support
-    // pub fn get_theme(&self, theme_name: Option<&str>) -> Result<Theme> {
-    //     let config = self.load_config()?;
-    //     let theme_name = theme_name.unwrap_or(&config.default_theme);
-
-    //     config
-    //         .themes
-    //         .iter()
-    //         .find(|t| t.name == *theme_name)
-    //         .or_else(|| config.themes.first())
-    //         .cloned()
-    //         .ok_or_else(|| anyhow::anyhow!("No themes available"))
-    // }
-
-    // pub fn get_config_path(&self) -> &Path {
-    //     &self.config_file
-    // }
-
     pub fn load_hosts(&self) -> Result<Vec<SshHost>> {
         // If hosts file doesn't exist, return empty vector
         if !self.hosts_file.exists() {
@@ -204,25 +183,6 @@ impl ConfigManager {
 
         Ok(hosts)
     }
-
-    // pub fn save_hosts(&self, groups: &[HostGroup]) -> Result<()> {
-    //     // Create hosts file if it doesn't exist
-    //     if !self.hosts_file.exists() {
-    //         fs::write(&self.hosts_file, "").context("Failed to create hosts file")?;
-    //     }
-
-    //     let config = HostsConfig {
-    //         groups: groups.to_vec(),
-    //     };
-        
-    //     let toml = toml::to_string_pretty(&config)
-    //         .context("Failed to serialize hosts")?;
-            
-    //     fs::write(&self.hosts_file, toml)
-    //         .context("Failed to write hosts file")?;
-            
-    //     Ok(())
-    // }
 
     pub fn get_hosts_path(&self) -> &Path {
         &self.hosts_file

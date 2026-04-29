@@ -7,18 +7,12 @@ use std::path::PathBuf;
 
 use crate::app::types::{ActivePanel, InputMode};
 
-impl Default for App {
-    fn default() -> Self {
-        let config_manager = ConfigManager::new().unwrap_or_else(|e| {
-            eprintln!("Failed to initialize config manager: {}", e);
-            std::process::exit(1);
-        });
-        let app_config = config_manager.load_config().unwrap_or_else(|e| {
-            eprintln!("Failed to load config: {}", e);
-            std::process::exit(1);
-        });
+impl App {
+    pub fn new() -> Result<Self> {
+        let config_manager = ConfigManager::new().context("Failed to initialize config manager")?;
+        let app_config = config_manager.load_config().context("Failed to load config")?;
 
-        let ssh_config_path = PathBuf::from(app_config.ssh_file_config.clone());
+        let ssh_config_path = PathBuf::from(&app_config.ssh_file_config);
         let strict_host_key_checking = app_config.strict_host_key_checking.clone();
         let theme = app_config
             .themes
@@ -28,6 +22,19 @@ impl Default for App {
             .unwrap_or_default();
 
         tracing::info!("SSH config path: {:?}", ssh_config_path);
+
+        let mut app = Self::build(config_manager, ssh_config_path, strict_host_key_checking, theme);
+        app.load_all_hosts().context("Failed to load hosts")?;
+        app.host_list_state.select(Some(app.selected_host));
+        Ok(app)
+    }
+
+    fn build(
+        config_manager: ConfigManager,
+        ssh_config_path: PathBuf,
+        strict_host_key_checking: String,
+        theme: ResolvedTheme,
+    ) -> Self {
         Self {
             should_quit: false,
             hosts: Vec::new(),
@@ -65,15 +72,6 @@ impl Default for App {
             group_list_state: ListState::default(),
         }
     }
-}
-
-impl App {
-    pub fn new() -> Result<Self> {
-        let mut app = Self::default();
-        app.load_all_hosts().context("Failed to load hosts")?;
-        app.host_list_state.select(Some(app.selected_host));
-        Ok(app)
-    }
 
     pub fn clear_status_message(&mut self) {
         self.status_message = None;
@@ -81,7 +79,15 @@ impl App {
 
     #[cfg(test)]
     pub fn with_hosts(hosts: Vec<crate::models::SshHost>) -> Self {
-        let mut app = Self::default();
+        let config_manager =
+            ConfigManager::new().expect("test ConfigManager initialization failed");
+        let mut app = Self::build(
+            config_manager,
+            PathBuf::new(),
+            "accept-new".to_string(),
+            ResolvedTheme::default(),
+        );
+
         let mut groups: Vec<String> = Vec::new();
         for host in &hosts {
             let group = host.group.as_deref().unwrap_or("Ungrouped").to_string();

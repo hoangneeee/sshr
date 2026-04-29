@@ -3,6 +3,7 @@ use shell_escape::unix::escape;
 use std::borrow::Cow;
 use std::process::Command;
 use super::types::{FileItem, AppSftpState};
+use crate::constants::SSH_REMOTE_LIST_TIMEOUT_S;
 
 impl AppSftpState {
     /// Refresh the remote file list
@@ -83,27 +84,6 @@ impl AppSftpState {
         Ok(())
     }
 
-    /// Go up one directory in the remote file system
-    pub fn go_remote_back(&mut self) -> Result<()> {
-        if self.remote_current_path != "/" {
-            let mut path_parts: Vec<&str> = self.remote_current_path
-                .trim_end_matches('/')
-                .split('/')
-                .collect();
-            if path_parts.len() > 1 {
-                path_parts.pop();
-                self.remote_current_path = if path_parts.len() == 1 {
-                    "/".to_string()
-                } else {
-                    path_parts.join("/")
-                };
-                self.remote_selected = 0;
-                self.refresh_remote()?;
-            }
-        }
-        Ok(())
-    }
-
     /// Read the contents of a remote directory
     fn read_remote_directory(
         user: &str,
@@ -118,7 +98,7 @@ impl AppSftpState {
             "-p".to_string(),
             port.to_string(),
             "-o".to_string(),
-            "ConnectTimeout=10".to_string(),
+            format!("ConnectTimeout={}", SSH_REMOTE_LIST_TIMEOUT_S),
             "-o".to_string(),
             format!("StrictHostKeyChecking={}", strict_host_key_checking),
             "-o".to_string(),
