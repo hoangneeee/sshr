@@ -15,12 +15,12 @@ pub fn draw_footer<B: Backend>(f: &mut Frame, app: &App, area: Rect) {
         .split(area);
 
     let key_style = Style::default()
-        .fg(app.theme.secondary)
+        .fg(app.ctx.theme.secondary)
         .add_modifier(Modifier::BOLD);
     let desc_style = Style::default().fg(Color::DarkGray);
 
-    let (nav_spans, action_spans) = match app.input_mode {
-        InputMode::Normal if app.is_connecting => (
+    let (nav_spans, action_spans) = match app.ui.input_mode {
+        InputMode::Normal if app.session.is_ssh_connecting() => (
             Line::from(Span::styled(
                 "Connecting to SSH host...",
                 Style::default().fg(Color::Yellow),

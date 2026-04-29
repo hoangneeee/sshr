@@ -6,42 +6,6 @@ use std::fs;
 use std::net::ToSocketAddrs;
 
 impl App {
-    /// Update the list of groups and the hosts in the current group
-    pub fn update_groups(&mut self) {
-        // Extract unique group names from hosts that have an explicit group
-        let mut groups: Vec<String> = self.hosts
-            .iter()
-            .filter_map(|host| host.group.clone())
-            .collect::<std::collections::HashSet<_>>()
-            .into_iter()
-            .collect();
-
-        // Sort groups alphabetically
-        groups.sort();
-
-        // Add "Ungrouped" at the end if any host has no group (e.g. from .ssh/config)
-        if self.hosts.iter().any(|h| h.group.is_none()) {
-            groups.push("Ungrouped".to_string());
-        }
-
-        // Update groups list
-        self.groups = groups;
-
-        // If no groups, clear the current group selection
-        if self.groups.is_empty() {
-            self.hosts_in_current_group.clear();
-            return;
-        }
-        
-        // Ensure selected_group is within bounds
-        if self.selected_group >= self.groups.len() {
-            self.selected_group = self.groups.len().saturating_sub(1);
-        }
-        
-        // Update hosts for the current group
-        self.update_hosts_for_selected_group();
-    }
-
     pub fn load_all_hosts(&mut self) -> Result<()> {
         self.load_ssh_config()
             .context("Failed to load SSH config")?;
@@ -50,12 +14,12 @@ impl App {
         self.handle_duplicate_hosts();
 
         // Update groups after loading all hosts
-        self.update_groups();
-        
-        if self.hosts.is_empty() {
-            self.selected_host = 0;
-        } else if self.selected_host >= self.hosts.len() {
-            self.selected_host = self.hosts.len().saturating_sub(1);
+        self.hosts.rebuild_groups();
+
+        if self.hosts.hosts.is_empty() {
+            self.hosts.selected_host = 0;
+        } else if self.hosts.selected_host >= self.hosts.hosts.len() {
+            self.hosts.selected_host = self.hosts.hosts.len().saturating_sub(1);
         }
         self.filter_hosts();
         Ok(())
@@ -63,18 +27,18 @@ impl App {
 
     pub fn load_ssh_config(&mut self) -> Result<()> {
         // Clear only system-loaded hosts to allow custom hosts to persist across reloads
-        self.hosts.retain(|h| h.group.is_some()); // Retain only custom hosts (those with a group)
+        self.hosts.hosts.retain(|h| h.group.is_some());
 
-        if !self.ssh_config_path.exists() {
+        if !self.ctx.ssh_config_path.exists() {
             tracing::warn!(
                 "System SSH config file not found at {:?}",
-                self.ssh_config_path
+                self.ctx.ssh_config_path
             );
             return Ok(());
         }
 
-        let config_content =
-            fs::read_to_string(&self.ssh_config_path).context("Failed to read SSH config file")?;
+        let config_content = fs::read_to_string(&self.ctx.ssh_config_path)
+            .context("Failed to read SSH config file")?;
 
         let mut current_host: Option<SshHost> = None;
 
@@ -85,11 +49,9 @@ impl App {
             }
 
             if line.to_lowercase().starts_with("host ") {
-                // Save previous host if exists
                 if let Some(host) = current_host.take() {
-                    // Check if a host with this alias already exists from custom config
-                    if !self.hosts.iter().any(|h| h.alias == host.alias) {
-                        self.hosts.push(host);
+                    if !self.hosts.hosts.iter().any(|h| h.alias == host.alias) {
+                        self.hosts.hosts.push(host);
                     } else {
                         tracing::warn!(
                             "Skipping SSH config host '{}' as it's duplicated by a custom host.",
@@ -98,10 +60,8 @@ impl App {
                     }
                 }
 
-                // Start new host
                 let alias = line[5..].trim().to_string();
-                // Skip wildcard/pattern entries (e.g. "Host *", "Host *.example.com")
-                // These are global SSH settings, not connectable hosts
+                // Skip wildcard/pattern entries (e.g. "Host *")
                 if alias.contains('*') || alias.contains('?') || alias.contains('!') {
                     current_host = None;
                     continue;
@@ -126,12 +86,11 @@ impl App {
             }
         }
 
-        tracing::info!("Loaded {} hosts from SSH config", self.hosts.len());
+        tracing::info!("Loaded {} hosts from SSH config", self.hosts.hosts.len());
 
-        // Don't forget to add the last host
         if let Some(host) = current_host {
-            if !self.hosts.iter().any(|h| h.alias == host.alias) {
-                self.hosts.push(host);
+            if !self.hosts.hosts.iter().any(|h| h.alias == host.alias) {
+                self.hosts.hosts.push(host);
             } else {
                 tracing::warn!(
                     "Skipping SSH config host '{}' as it's duplicated by a custom host.",
@@ -142,13 +101,12 @@ impl App {
 
         tracing::info!(
             "Loaded {} hosts from SSH config (after merging with custom hosts)",
-            self.hosts.len()
+            self.hosts.hosts.len()
         );
 
         // Check reachability for each host
-        for host in &mut self.hosts {
+        for host in &mut self.hosts.hosts {
             if host.group.is_none() {
-                // Only update description for system hosts if not already set by custom
                 let socket_addr = format!("{}:{}", host.host, host.port.unwrap_or(22))
                     .to_socket_addrs()
                     .ok()
@@ -165,43 +123,40 @@ impl App {
         Ok(())
     }
 
-    // Load custome hosts from hosts.toml
+    /// Load custom hosts from hosts.toml.
     pub fn load_custom_hosts(&mut self) -> Result<()> {
-        match self.config_manager.load_hosts() {
+        match self.ctx.config_manager.load_hosts() {
             Ok(mut custom_hosts) => {
-                // Prepend custom hosts to the list, as they often take precedence or are more frequently used.
-                // Filter out any custom hosts that might have duplicate aliases with existing system hosts
-                // (though `handle_duplicate_hosts` will catch this later, this is a good defensive step).
                 let mut existing_aliases: HashSet<String> =
-                    self.hosts.iter().map(|h| h.alias.clone()).collect();
+                    self.hosts.hosts.iter().map(|h| h.alias.clone()).collect();
                 custom_hosts.retain(|host| {
-              if existing_aliases.contains(&host.alias) {
-                  tracing::warn!("Skipping custom host '{}' due to duplicate alias. System host will be used.", host.alias);
-                  false
-              } else {
-                  existing_aliases.insert(host.alias.clone());
-                  true
-              }
-          });
+                    if existing_aliases.contains(&host.alias) {
+                        tracing::warn!(
+                            "Skipping custom host '{}' due to duplicate alias. System host will be used.",
+                            host.alias
+                        );
+                        false
+                    } else {
+                        existing_aliases.insert(host.alias.clone());
+                        true
+                    }
+                });
 
-                // Insert custom hosts at the beginning
-                self.hosts.splice(0..0, custom_hosts);
+                self.hosts.hosts.splice(0..0, custom_hosts);
                 Ok(())
             }
             Err(e) => {
                 tracing::error!("Failed to load custom hosts: {}", e);
-                // Don't propagate error, just log it, so app can still run.
                 Ok(())
             }
         }
     }
 
-    // Remove duplicate hosts
+    /// Remove duplicate hosts.
     pub fn handle_duplicate_hosts(&mut self) {
         let mut seen_aliases = HashSet::new();
         let mut unique_hosts = Vec::new();
-        for host in self.hosts.drain(..) {
-            // Use drain to consume self.hosts
+        for host in self.hosts.hosts.drain(..) {
             if seen_aliases.contains(&host.alias) {
                 tracing::warn!("Duplicate alias found: {}", host.alias);
             } else {
@@ -209,6 +164,6 @@ impl App {
                 unique_hosts.push(host);
             }
         }
-        self.hosts = unique_hosts;
+        self.hosts.hosts = unique_hosts;
     }
 }

@@ -1,55 +1,29 @@
-use crate::app::ActivePanel;
+use crate::app::hosts_state::ActivePanel;
 use crate::app::{App, InputMode};
-use crate::app_event::SshEvent;
-use crate::constants::SSH_EVENT_CHANNEL_BUFFER;
 use anyhow::Result;
 use ratatui::backend::Backend;
 use ratatui::Terminal;
 use std::time::Instant;
-use tokio::sync::mpsc;
 
 impl App {
-    /// Cycle to next group (wrap-around) and reset host selection.
-    fn cycle_group(&mut self, forward: bool) {
-        if self.groups.is_empty() {
-            return;
-        }
-        let total = self.groups.len();
-        self.selected_group = if forward {
-            (self.selected_group + 1) % total
-        } else {
-            (self.selected_group + total - 1) % total
-        };
-        self.group_list_state.select(Some(self.selected_group));
-        self.update_hosts_for_selected_group();
-    }
-
     // Handle key
     pub fn handle_key_enter<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
         if let Some(selected_host) = self.get_current_selected_host().cloned() {
             tracing::info!("Enter pressed, selected host: {:?}", selected_host.alias);
 
-            // Store the connecting host
-            self.connecting_host = Some(selected_host.clone());
-
-            // Channel for SSH worker -> UI events
-            let (sender, receiver) = mpsc::channel::<SshEvent>(SSH_EVENT_CHANNEL_BUFFER);
-            self.ssh_receiver = Some(receiver);
-
-            // Set connecting state
-            self.is_connecting = true;
-            self.ssh_ready_for_terminal = false;
-            self.status_message = Some((
+            self.ui.status_message = Some((
                 format!("Connecting to {}...", selected_host.alias),
                 Instant::now(),
             ));
 
+            // Set up SessionState::Ssh and get the worker's sender end.
+            let sender = self.start_ssh_session(selected_host.clone());
+
             // Worker shells out to ssh (blocking) — run on tokio's blocking pool
             // so we don't tie up an executor thread.
-            let host_clone = selected_host.clone();
-            let strict_host_key_checking = self.strict_host_key_checking.clone();
+            let strict_host_key_checking = self.ctx.strict_host_key_checking.clone();
             tokio::task::spawn_blocking(move || {
-                Self::ssh_thread_worker(sender, host_clone, strict_host_key_checking);
+                Self::ssh_thread_worker(sender, selected_host, strict_host_key_checking);
             });
 
             // Redraw UI to show loading
@@ -65,7 +39,7 @@ impl App {
 
     pub fn handle_key_e(&mut self) -> Result<()> {
         // Get the path to the hosts file
-        let hosts_path = self.config_manager.get_hosts_path();
+        let hosts_path = self.ctx.config_manager.get_hosts_path();
 
         // Create the file if it doesn't exist
         if !hosts_path.exists() {
@@ -76,7 +50,6 @@ impl App {
         }
 
         // TODO: Can use nvim, vim, nano if exist instead of default text editor
-        // Open the file with the default text editor
         if let Err(e) = open::that(&hosts_path) {
             tracing::error!("Failed to open editor: {}", e);
             return Err(anyhow::anyhow!("Failed to open editor: {}", e));
@@ -89,33 +62,33 @@ impl App {
     }
 
     pub fn handle_key_esc(&mut self) -> Result<()> {
-        self.input_mode = InputMode::Normal;
+        self.ui.input_mode = InputMode::Normal;
         Ok(())
     }
 
     pub fn handle_key_tab(&mut self) -> Result<()> {
-        self.switch_panel();
+        self.hosts.switch_panel();
         Ok(())
     }
 
     pub fn handle_key_right(&mut self) -> Result<()> {
-        match self.active_panel {
-            ActivePanel::Groups => self.cycle_group(true),
-            ActivePanel::Hosts => self.select_next(),
+        match self.hosts.active_panel {
+            ActivePanel::Groups => self.hosts.cycle_group(true),
+            ActivePanel::Hosts => self.hosts.select_next(),
         }
         Ok(())
     }
 
     pub fn handle_key_left(&mut self) -> Result<()> {
-        match self.active_panel {
-            ActivePanel::Groups => self.cycle_group(false),
-            ActivePanel::Hosts => self.select_previous(),
+        match self.hosts.active_panel {
+            ActivePanel::Groups => self.hosts.cycle_group(false),
+            ActivePanel::Hosts => self.hosts.select_previous(),
         }
         Ok(())
     }
 
     pub fn handle_shift_tab(&mut self) -> Result<()> {
-        self.cycle_group(false);
+        self.hosts.cycle_group(false);
         Ok(())
     }
 }

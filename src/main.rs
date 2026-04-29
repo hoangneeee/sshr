@@ -120,10 +120,10 @@ fn draw_current_screen<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     app: &mut App,
 ) -> Result<()> {
-    let theme = app.theme.clone();
-    terminal.draw(|f: &mut ratatui::Frame<'_>| match app.input_mode {
+    let theme = app.ctx.theme.clone();
+    terminal.draw(|f: &mut ratatui::Frame<'_>| match app.ui.input_mode {
         InputMode::Sftp => {
-            if let Some(sftp_state) = &mut app.sftp_state {
+            if let Some(sftp_state) = app.session.sftp_data_mut() {
                 draw_sftp::<B>(f, sftp_state, &theme);
             } else {
                 draw::<B>(f, app);
@@ -146,10 +146,10 @@ async fn run_app<B: ratatui::backend::Backend>(
         // If we're in SSH mode, suspend the main loop until SSH ends.
         // Block on the next SSH event instead of busy-polling — this is
         // cheap and avoids interfering with the foreground ssh process.
-        if app.ssh_ready_for_terminal {
+        if app.session.is_ssh_active() {
             tracing::info!("SSH mode active - suspending main loop");
 
-            while app.ssh_ready_for_terminal {
+            while app.session.is_ssh_active() {
                 if app.await_next_ssh_event::<B>(terminal).await? {
                     break;
                 }
@@ -162,13 +162,13 @@ async fn run_app<B: ratatui::backend::Backend>(
 
         draw_current_screen::<B>(terminal, &mut app)?;
 
-        let poll_timeout = if app.is_connecting { POLL_CONNECTING } else { POLL_NORMAL };
+        let poll_timeout = if app.session.is_ssh_connecting() { POLL_CONNECTING } else { POLL_NORMAL };
 
         if event::poll(poll_timeout).context("Event poll failed")? {
             if let CrosstermEvent::Key(key_event) = event::read().context("Event read failed")? {
                 if key_event.kind == event::KeyEventKind::Press
-                    && !app.is_connecting
-                    && !app.ssh_ready_for_terminal
+                    && !app.session.is_ssh_connecting()
+                    && !app.session.is_ssh_active()
                 {
                     handle_key_events(&mut app, key_event, terminal).await?;
                 }
@@ -190,7 +190,7 @@ async fn handle_key_events<B: ratatui::backend::Backend>(
     key_event: crossterm::event::KeyEvent,
     terminal: &mut Terminal<B>,
 ) -> Result<()> {
-    match app.input_mode {
+    match app.ui.input_mode {
         InputMode::Normal => match key_event.code {
             KeyCode::Char('q') | KeyCode::Char('Q') => {
                 app.handle_key_q()?;
@@ -220,15 +220,15 @@ async fn handle_key_events<B: ratatui::backend::Backend>(
                 app.enter_sftp_mode(terminal)?;
             }
             KeyCode::Up | KeyCode::Char('k') => {
-                app.select_previous();
+                app.hosts.select_previous();
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                app.select_next();
+                app.hosts.select_next();
             }
             KeyCode::Char('e') => {
                 if let Err(e) = app.handle_key_e() {
                     tracing::error!("Failed to open editor: {}", e);
-                    app.status_message =
+                    app.ui.status_message =
                         Some((format!("Failed to open editor: {}", e), Instant::now()));
                 }
             }
@@ -242,9 +242,9 @@ async fn handle_key_events<B: ratatui::backend::Backend>(
                 tracing::info!("Reloading SSH config...");
                 if let Err(e) = app.load_all_hosts() {
                     tracing::error!("Failed to reload SSH config: {}", e);
-                    app.status_message = Some((format!("Reload failed: {}", e), Instant::now()));
+                    app.ui.status_message = Some((format!("Reload failed: {}", e), Instant::now()));
                 } else {
-                    app.status_message =
+                    app.ui.status_message =
                         Some(("Config reloaded successfully".to_string(), Instant::now()));
                 }
             }
@@ -253,11 +253,11 @@ async fn handle_key_events<B: ratatui::backend::Backend>(
         InputMode::Search => {
             match key_event.code {
                 KeyCode::Char(c) => {
-                    app.search_query.push(c);
+                    app.search.query.push(c);
                     app.filter_hosts();
                 }
                 KeyCode::Backspace | KeyCode::Delete => {
-                    app.search_query.pop();
+                    app.search.query.pop();
                     app.filter_hosts();
                 }
                 KeyCode::Enter => {
