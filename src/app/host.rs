@@ -1,4 +1,4 @@
-use crate::app::{App, InputMode};
+use crate::app::App;
 use crate::models::SshHost;
 use anyhow::{Context, Result};
 use std::collections::HashSet;
@@ -64,14 +64,6 @@ impl App {
     pub fn load_ssh_config(&mut self) -> Result<()> {
         // Clear only system-loaded hosts to allow custom hosts to persist across reloads
         self.hosts.retain(|h| h.group.is_some()); // Retain only custom hosts (those with a group)
-
-        if !self.ssh_config_path.exists() {
-            tracing::warn!(
-                "System SSH config file not found at {:?}",
-                self.ssh_config_path
-            );
-            return Ok(());
-        }
 
         if !self.ssh_config_path.exists() {
             tracing::warn!(

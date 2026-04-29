@@ -1,8 +1,10 @@
 use crate::app::App;
 use crate::app_event::{SftpEvent, TransferEvent};
+use crate::constants::{SSH_PRE_LAUNCH_DELAY, TRANSFER_CHANNEL_BUFFER};
 use crate::models::SshHost;
 use crate::sftp_logic::AppSftpState;
 use crate::sftp_logic::types::{DownloadProgress, UploadProgress};
+use crate::ui::hosts_list::draw;
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::backend::Backend;
@@ -11,9 +13,6 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Instant;
 use tokio::sync::mpsc as tokio_mpsc;
-use ui::hosts_list::draw;
-
-use crate::ui;
 
 impl App {
     pub fn enter_sftp_mode<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
@@ -21,7 +20,8 @@ impl App {
             let (sftp_sender, sftp_receiver) = mpsc::channel::<SftpEvent>();
             self.sftp_receiver = Some(sftp_receiver);
 
-            let (transfer_sender, transfer_receiver) = tokio_mpsc::channel::<TransferEvent>(100);
+            let (transfer_sender, transfer_receiver) =
+                tokio_mpsc::channel::<TransferEvent>(TRANSFER_CHANNEL_BUFFER);
             self.transfer_receiver = Some(transfer_receiver);
 
             self.is_sftp_loading = true;
@@ -104,7 +104,7 @@ impl App {
         Ok(())
     }
 
-    pub fn process_sftp_events<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<bool> {
+    pub fn process_sftp_events<B: Backend>(&mut self, _terminal: &mut Terminal<B>) -> Result<bool> {
         if let Some(receiver) = &self.sftp_receiver {
             if let Ok(event) = receiver.try_recv() {
                 match event {
@@ -239,7 +239,7 @@ impl App {
                     return;
                 }
                 if sender.send(SftpEvent::Connected).is_ok() {
-                    thread::sleep(std::time::Duration::from_millis(200));
+                    thread::sleep(SSH_PRE_LAUNCH_DELAY);
                     tracing::info!("Starting SFTP session for {}", host.alias);
                 } else {
                     tracing::error!("Failed to send Connected event");

@@ -14,7 +14,8 @@ pub struct ResolvedTheme {
     pub text: Color,
     /// Errors and match highlights (was Color::Red)
     pub error: Color,
-    /// Warnings (was Color::Yellow)
+    /// Warnings (was Color::Yellow). Reserved for future use; surfaced from config.
+    #[allow(dead_code)]
     pub warning: Color,
     /// Success messages (was Color::Green)
     pub success: Color,

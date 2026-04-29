@@ -57,17 +57,8 @@ impl AppSftpState {
         }
         Ok(())
     }
-    
-    /// Go up one directory in the local file system
-    pub fn go_local_back(&mut self) -> Result<()> {
-        if let Some(parent) = self.local_current_path.parent() {
-            self.local_current_path = parent.to_path_buf();
-            self.local_selected = 0;
-            self.refresh_local()?;
-        }
-        Ok(())
-    }
-    
+
+
     /// Read the contents of a local directory
     fn read_local_directory(path: &Path) -> Result<Vec<FileItem>> {
         let mut items = Vec::new();

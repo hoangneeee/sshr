@@ -9,25 +9,27 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
+use std::fs::File;
+use std::io;
 use std::path::Path;
-use std::{fs::File, time::Instant};
-use std::{io, time::Duration};
+use std::time::Instant;
 use tracing_subscriber::{fmt, EnvFilter};
 
+mod app;
 mod app_event;
 mod config;
+mod constants;
 mod models;
 mod sftp_logic;
-mod sftp_ui;
 mod theme;
-mod app;
 mod ui;
 
-use ui::{
-    hosts_list::{draw},
-};
-
 use crate::app::{App, InputMode};
+use crate::constants::{
+    POLL_CONNECTING, POLL_NORMAL, SSH_SUSPEND_POLL,
+};
+use crate::ui::hosts_list::draw;
+use crate::ui::sftp::draw_sftp;
 
 /// A TUI for managing and connecting to SSH hosts
 /// Git: https://github.com/hoangneeee/sshr
@@ -116,64 +118,56 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+fn draw_current_screen<B: ratatui::backend::Backend>(
+    terminal: &mut Terminal<B>,
+    app: &mut App,
+) -> Result<()> {
+    let theme = app.theme.clone();
+    terminal.draw(|f: &mut ratatui::Frame<'_>| match app.input_mode {
+        InputMode::Sftp => {
+            if let Some(sftp_state) = &mut app.sftp_state {
+                draw_sftp::<B>(f, sftp_state, &theme);
+            } else {
+                draw::<B>(f, app);
+            }
+        }
+        _ => draw::<B>(f, app),
+    })?;
+    Ok(())
+}
+
 async fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     mut app: App,
 ) -> Result<()> {
     loop {
-        // Process events
         let needs_redraw = app.process_ssh_events::<B>(terminal)?;
-
-        // Process SFTP events
         let _ = app.process_sftp_events::<B>(terminal)?;
-        
         app.process_transfer_events()?;
 
         // If we're in SSH mode, suspend the main loop until SSH ends
         if app.ssh_ready_for_terminal {
             tracing::info!("SSH mode active - suspending main loop");
 
-            // Wait for SSH session to end with longer intervals
             loop {
-                // Check for SSH events with longer timeout
                 let ssh_ended = app.process_ssh_events::<B>(terminal)?;
                 if ssh_ended || !app.ssh_ready_for_terminal {
                     tracing::info!("SSH session ended or interrupted - resuming main loop");
                     break;
                 }
-
-                // Sleep longer to avoid interfering with SSH session
-                tokio::time::sleep(Duration::from_millis(500)).await;
+                tokio::time::sleep(SSH_SUSPEND_POLL).await;
             }
 
-            // Force redraw when returning from SSH
             terminal.draw(|f| draw::<B>(f, &mut app))?;
             continue;
         }
 
-        // Draw UI (only when not in SSH mode)
-        let theme = app.theme.clone();
-        terminal.draw(|f: &mut ratatui::Frame<'_>| match app.input_mode {
-            InputMode::Sftp => {
-                if let Some(sftp_state) = &mut app.sftp_state {
-                    sftp_ui::draw_sftp::<B>(f, sftp_state, &theme);
-                } else {
-                    draw::<B>(f, &mut app);
-                }
-            }
-            _ => draw::<B>(f, &mut app),
-        })?;
+        draw_current_screen::<B>(terminal, &mut app)?;
 
-        // Handle terminal events with appropriate timeout
-        let poll_timeout = if app.is_connecting {
-            Duration::from_millis(50) // Faster polling when connecting
-        } else {
-            Duration::from_millis(100) // Normal polling
-        };
+        let poll_timeout = if app.is_connecting { POLL_CONNECTING } else { POLL_NORMAL };
 
         if event::poll(poll_timeout).context("Event poll failed")? {
             if let CrosstermEvent::Key(key_event) = event::read().context("Event read failed")? {
-                // Only handle keys if not connecting and not in SSH mode
                 if key_event.kind == event::KeyEventKind::Press
                     && !app.is_connecting
                     && !app.ssh_ready_for_terminal
@@ -187,19 +181,8 @@ async fn run_app<B: ratatui::backend::Backend>(
             return Ok(());
         }
 
-        // Force redraw if needed
         if needs_redraw {
-            let theme = app.theme.clone();
-            terminal.draw(|f| match app.input_mode {
-                InputMode::Sftp => {
-                    if let Some(sftp_state) = &mut app.sftp_state {
-                        sftp_ui::draw_sftp::<B>(f, sftp_state, &theme);
-                    } else {
-                        draw::<B>(f, &mut app);
-                    }
-                }
-                _ => draw::<B>(f, &mut app),
-            })?;
+            draw_current_screen::<B>(terminal, &mut app)?;
         }
     }
 }

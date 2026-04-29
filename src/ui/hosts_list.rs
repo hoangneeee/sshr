@@ -12,13 +12,6 @@ use crate::app::{App, InputMode, ActivePanel};
 use super::footer::draw_footer;
 use super::status_bar::draw_status_bar;
 
-fn _elapsed() -> u64 {
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-}
-
 pub fn draw<B: Backend>(f: &mut Frame, app: &mut App) {
     let size = f.size();
 

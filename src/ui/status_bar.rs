@@ -1,12 +1,12 @@
 
 use ratatui::{
     backend::Backend,
-    layout::{Rect},
-    style::{Color, Style},
-    widgets::{Paragraph},
+    layout::Rect,
+    style::Style,
+    widgets::Paragraph,
     Frame,
 };
-use crate::app::{App};
+use crate::app::App;
 
 pub fn draw_status_bar<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
   if let Some((message, timestamp)) = &app.status_message {
