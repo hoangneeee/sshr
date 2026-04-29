@@ -102,7 +102,11 @@ Each theme defines 8 color roles. Colors are 6-digit hex strings (the leading `#
 | `error`      | Errors, fuzzy-match character highlight       | `#ff5555`   |
 | `warning`    | Reserved for future use                       | `#ffb86c`   |
 | `success`    | Success status messages                       | `#50fa7b`   |
-| `background` | Reserved (terminal background is not painted) | `#1a202c`   |
+| `background` | Painted across the whole TUI                  | `#1a202c`   |
+
+### Ready-made themes
+
+Browse [./themes/](./themes/) for ready-to-paste community themes (Dracula, Tokyo Night, Nord, …). PRs welcome — see the [themes README](./themes/README.md) for the contribution guide.
 
 ### Example: add a Tokyo Night theme
 

@@ -1,0 +1,16 @@
+# Dracula — https://draculatheme.com
+# Paste this block into ~/.config/sshr/sshr.toml under your themes list,
+# then set `default_theme = "dracula"`.
+
+[[themes]]
+name = "dracula"
+
+[themes.colors]
+primary    = "#50fa7b"   # green
+secondary  = "#8be9fd"   # cyan
+background = "#282a36"
+text       = "#f8f8f2"
+highlight  = "#f1fa8c"   # yellow
+error      = "#ff5555"   # red
+warning    = "#ffb86c"   # orange
+success    = "#50fa7b"   # green
