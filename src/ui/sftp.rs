@@ -81,7 +81,7 @@ fn draw_file_panel(
     let border_style = if is_active {
         Style::default().fg(theme.primary)
     } else {
-        Style::default().fg(Color::Gray)
+        Style::default().fg(theme.secondary)
     };
 
     let title_style = if is_active {
@@ -90,7 +90,7 @@ fn draw_file_panel(
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
-            .fg(Color::Gray)
+            .fg(theme.secondary)
             .add_modifier(Modifier::BOLD)
     };
 
@@ -117,15 +117,15 @@ fn draw_file_panel(
             let (icon, name_color) = match file {
                 FileItem::Directory { name } => {
                     if name == ".." {
-                        ("↰ ", Color::Cyan)
+                        ("↰ ", theme.secondary)
                     } else {
-                        ("📁 ", Color::Blue)
+                        ("📁 ", theme.secondary)
                     }
                 }
                 FileItem::File {
                     name: _name,
                     size: _,
-                } => ("📄 ", Color::White),
+                } => ("📄 ", theme.text),
             };
 
             spans.push(Span::styled(icon, Style::default().fg(theme.highlight)));
@@ -148,11 +148,13 @@ fn draw_file_panel(
             if let FileItem::File { size, .. } = file {
                 spans.push(Span::styled(
                     format!(" ({})", format_file_size(*size)),
-                    Style::default().fg(if is_selected {
-                        Color::Black
+                    if is_selected {
+                        Style::default().fg(Color::Black)
                     } else {
-                        Color::Gray
-                    }),
+                        Style::default()
+                            .fg(theme.secondary)
+                            .add_modifier(Modifier::DIM)
+                    },
                 ));
             }
 
@@ -184,7 +186,7 @@ fn draw_sftp_footer(f: &mut Frame, area: Rect, sftp_state: &AppSftpState, theme:
 
     // Navigation help
     let nav_text = "↑/↓: Navigate  [Enter]: Open  [Backspace]: Back  [Tab]: Switch Panel";
-    let nav_help = Paragraph::new(nav_text).style(Style::default().fg(Color::Gray));
+    let nav_help = Paragraph::new(nav_text).style(Style::default().fg(theme.secondary));
 
     // Action help
     let action_text = "[u]: Upload  [d]: Download  [r]: Refresh  [q]: Quit SFTP";

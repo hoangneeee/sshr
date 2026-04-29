@@ -90,7 +90,7 @@ fn draw_groups_panel(f: &mut Frame, app: &mut App, area: Rect) {
                     if is_selected {
                         text_style
                     } else {
-                        text_style.fg(Color::LightYellow).add_modifier(Modifier::BOLD)
+                        text_style.fg(app.ctx.theme.highlight).add_modifier(Modifier::BOLD)
                     }
                 )
             ];
@@ -214,7 +214,7 @@ fn draw_hosts_panel(f: &mut Frame, app: &mut App, area: Rect, is_search_mode: bo
 
             spans.push(Span::styled(
                 format!("[{}] ", i + 1),
-                text_style.add_modifier(Modifier::BOLD).fg(if is_selected { Color::Black } else { Color::LightYellow })
+                text_style.add_modifier(Modifier::BOLD).fg(if is_selected { Color::Black } else { app.ctx.theme.highlight })
             ));
 
             if is_search_mode && !app.search.query.is_empty() {
@@ -242,7 +242,12 @@ fn draw_hosts_panel(f: &mut Frame, app: &mut App, area: Rect, is_search_mode: bo
             }
 
             let details = format!(" ({}@{}:{})", host.user, host.host, host.port.unwrap_or(22));
-            spans.push(Span::styled(details, text_style.fg(Color::Gray)));
+            let details_style = if is_selected {
+                text_style.add_modifier(Modifier::DIM)
+            } else {
+                text_style.fg(app.ctx.theme.secondary)
+            };
+            spans.push(Span::styled(details, details_style));
 
             let item_text = Line::from(spans);
             ListItem::new(item_text).style(bg_style)
@@ -257,7 +262,7 @@ fn draw_hosts_panel(f: &mut Frame, app: &mut App, area: Rect, is_search_mode: bo
         };
         List::new(vec![ListItem::new(Span::styled(
             message,
-            Style::default().fg(Color::Gray).not_italic()
+            Style::default().fg(app.ctx.theme.secondary).not_italic()
         ))])
     } else {
         List::new(items)
@@ -291,6 +296,13 @@ fn draw_enhanced_loading_overlay(f: &mut Frame, app: &App) {
         "Connecting".to_string()
     };
 
+    let theme = &app.ctx.theme;
+    let accent_style = Style::default().fg(theme.highlight);
+    let title_style = Style::default().fg(theme.text).add_modifier(Modifier::BOLD);
+    let info_style = Style::default().fg(theme.secondary);
+    let muted_style = Style::default().fg(theme.text).add_modifier(Modifier::DIM);
+    let label_style = Style::default().fg(theme.secondary);
+
     let loading_content = if app.session.is_sftp_loading() {
         let status_text = if let Some((msg, _)) = &app.ui.status_message {
             msg.clone()
@@ -299,86 +311,56 @@ fn draw_enhanced_loading_overlay(f: &mut Frame, app: &App) {
         };
         vec![
             Line::from(vec![
-                Span::styled("🔄 ", Style::default().fg(Color::Yellow)),
-                Span::styled(
-                    "SFTP Initialization",
-                    Style::default()
-                        .fg(Color::White)
-                        .add_modifier(Modifier::BOLD),
-                ),
+                Span::styled("🔄 ", accent_style),
+                Span::styled("SFTP Initialization", title_style),
             ]),
             Line::from(""),
             Line::from(vec![
-                Span::styled("📡 ", Style::default().fg(Color::Blue)),
-                Span::styled(
-                    format!("{}{}", status_text, dots),
-                    Style::default().fg(Color::Cyan),
-                ),
+                Span::styled("📡 ", info_style),
+                Span::styled(format!("{}{}", status_text, dots), info_style),
                 Span::raw(padding),
             ]),
             Line::from(""),
             Line::from(vec![
-                Span::styled("💡 ", Style::default().fg(Color::Yellow)),
-                Span::styled(
-                    "Please wait...",
-                    Style::default().fg(Color::Gray).add_modifier(Modifier::DIM),
-                ),
+                Span::styled("💡 ", accent_style),
+                Span::styled("Please wait...", muted_style),
             ]),
         ]
     } else if let Some(host) = &app.session.connecting_host() {
         vec![
             Line::from(vec![
-                Span::styled("🔗 ", Style::default().fg(Color::Yellow)),
-                Span::styled(
-                    format!("SSH Connection to {}", host.alias),
-                    Style::default()
-                        .fg(Color::White)
-                        .add_modifier(Modifier::BOLD),
-                ),
+                Span::styled("🔗 ", accent_style),
+                Span::styled(format!("SSH Connection to {}", host.alias), title_style),
             ]),
             Line::from(""),
             Line::from(vec![
-                Span::styled("📡 ", Style::default().fg(Color::Blue)),
-                Span::styled(
-                    format!("{}{}", status_text, dots),
-                    Style::default().fg(Color::Cyan),
-                ),
+                Span::styled("📡 ", info_style),
+                Span::styled(format!("{}{}", status_text, dots), info_style),
                 Span::raw(padding),
             ]),
             Line::from(""),
             Line::from(vec![
-                Span::styled("Host: ", Style::default().fg(Color::Gray)),
+                Span::styled("Host: ", label_style),
                 Span::styled(
                     format!("{}@{}:{}", host.user, host.host, host.port.unwrap_or(22)),
-                    Style::default().fg(Color::Green),
+                    Style::default().fg(theme.success),
                 ),
             ]),
             Line::from(""),
             Line::from(vec![
-                Span::styled("💡 ", Style::default().fg(Color::Yellow)),
-                Span::styled(
-                    "Press Ctrl+C to cancel",
-                    Style::default().fg(Color::Gray).add_modifier(Modifier::DIM),
-                ),
+                Span::styled("💡 ", accent_style),
+                Span::styled("Press Ctrl+C to cancel", muted_style),
             ]),
         ]
     } else {
         vec![
             Line::from(vec![
-                Span::styled("🔗 ", Style::default().fg(Color::Yellow)),
-                Span::styled(
-                    "SSH Connection",
-                    Style::default()
-                        .fg(Color::White)
-                        .add_modifier(Modifier::BOLD),
-                ),
+                Span::styled("🔗 ", accent_style),
+                Span::styled("SSH Connection", title_style),
             ]),
             Line::from(""),
             Line::from(vec![
-                Span::styled(
-                    format!("{}{}", status_text, dots),
-                    Style::default().fg(Color::Cyan),
-                ),
+                Span::styled(format!("{}{}", status_text, dots), info_style),
                 Span::raw(padding),
             ]),
         ]
@@ -387,12 +369,8 @@ fn draw_enhanced_loading_overlay(f: &mut Frame, app: &App) {
     let block = Block::default()
         .borders(Borders::ALL)
         .title(" SSH Manager ")
-        .title_style(
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        )
-        .border_style(Style::default().fg(Color::Yellow));
+        .title_style(accent_style.add_modifier(Modifier::BOLD))
+        .border_style(accent_style);
 
     let paragraph = Paragraph::new(loading_content)
         .block(block)
