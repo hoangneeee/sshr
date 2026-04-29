@@ -1,7 +1,7 @@
 use crate::app::App;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
     Frame,
@@ -25,17 +25,19 @@ pub fn draw_footer(f: &mut Frame, app: &App, area: Rect, kind: FooterKind) {
     let key_style = Style::default()
         .fg(app.ctx.theme.secondary)
         .add_modifier(Modifier::BOLD);
-    let desc_style = Style::default().fg(Color::DarkGray);
+    let desc_style = Style::default()
+        .fg(app.ctx.theme.text)
+        .add_modifier(Modifier::DIM);
 
     let (nav_spans, action_spans) = match kind {
         FooterKind::Connecting => (
             Line::from(Span::styled(
                 "Connecting to SSH host...",
-                Style::default().fg(Color::Yellow),
+                Style::default().fg(app.ctx.theme.highlight),
             )),
             Line::from(Span::styled(
                 "[Ctrl+C] Cancel",
-                Style::default().fg(Color::Red),
+                Style::default().fg(app.ctx.theme.error),
             )),
         ),
         FooterKind::Normal => (

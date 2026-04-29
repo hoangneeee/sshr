@@ -2,7 +2,7 @@ use crate::models::SshHost;
 use crate::theme::ResolvedTheme;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
     Frame,
@@ -23,7 +23,7 @@ pub fn draw(
 
     let mut lines = vec![
         Line::from(vec![
-            Span::styled("Host: ", Style::default().fg(Color::Gray)),
+            Span::styled("Host: ", Style::default().fg(theme.secondary)),
             Span::styled(
                 format!("{}@{}:{}", host.user, host.host, host.port.unwrap_or(22)),
                 Style::default().fg(theme.highlight),
@@ -49,7 +49,9 @@ pub fn draw(
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
         "[Enter] submit   [Esc] cancel",
-        Style::default().fg(Color::DarkGray),
+        Style::default()
+            .fg(theme.secondary)
+            .add_modifier(Modifier::DIM),
     )));
 
     let block = Block::default()
