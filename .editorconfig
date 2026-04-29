@@ -1,0 +1,31 @@
+# http://editorconfig.org
+root = true
+
+[*]
+charset = utf-8
+indent_style = space
+indent_size = 4
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Rust specific overrides if needed (though 4 spaces is standard)
+[*.rs]
+indent_style = space
+indent_size = 4
+
+# Web/Config usually 2 spaces
+[*.{json,yaml,yml,html,js,ts,jsx,tsx,css,scss}]
+indent_size = 2
+
+# Markdown often uses trailing spaces for line breaks
+[*.md]
+trim_trailing_whitespace = false
+
+# Bat scripts for Windows
+[*.bat]
+end_of_line = crlf
+
+# Shell scripts
+[*.sh]
+end_of_line = lf
