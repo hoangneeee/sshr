@@ -1,6 +1,5 @@
 
 use ratatui::{
-    backend::Backend,
     layout::Rect,
     style::Style,
     widgets::Paragraph,
@@ -8,7 +7,7 @@ use ratatui::{
 };
 use crate::app::App;
 
-pub fn draw_status_bar<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
+pub fn draw_status_bar(f: &mut Frame, app: &mut App, area: Rect) {
   if let Some((message, timestamp)) = &app.ui.status_message {
       // Clear messages older than 5 seconds (except when connecting)
       let should_show = if app.session.is_ssh_connecting() {

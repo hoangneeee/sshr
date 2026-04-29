@@ -52,11 +52,6 @@ impl SessionState {
         matches!(self, Self::Ssh(s) if s.stage == SshStage::Connecting)
     }
 
-    /// True while the SSH child process owns the terminal.
-    pub fn is_ssh_active(&self) -> bool {
-        matches!(self, Self::Ssh(s) if s.stage == SshStage::Active)
-    }
-
     pub fn is_sftp_loading(&self) -> bool {
         matches!(self, Self::Sftp(s) if s.stage == SftpStage::Loading)
     }
@@ -76,22 +71,11 @@ impl SessionState {
         }
     }
 
-    pub fn sftp_session(&self) -> Option<&SftpSession> {
-        match self {
-            Self::Sftp(s) => Some(s),
-            _ => None,
-        }
-    }
-
     pub fn sftp_session_mut(&mut self) -> Option<&mut SftpSession> {
         match self {
             Self::Sftp(s) => Some(s),
             _ => None,
         }
-    }
-
-    pub fn sftp_data(&self) -> Option<&AppSftpState> {
-        self.sftp_session().and_then(|s| s.data.as_ref())
     }
 
     pub fn sftp_data_mut(&mut self) -> Option<&mut AppSftpState> {

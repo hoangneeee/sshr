@@ -1,5 +1,6 @@
 use crate::app::context::AppContext;
 use crate::app::hosts_state::HostsState;
+use crate::app::screen::{AppScreen, HostsScreen};
 use crate::app::search_state::SearchState;
 use crate::app::session::SessionState;
 use crate::app::ui_state::UiState;
@@ -47,6 +48,7 @@ impl App {
             search: SearchState::new(),
             ui: UiState::new(),
             session: SessionState::Idle,
+            screens: vec![AppScreen::Hosts(HostsScreen::new())],
         }
     }
 

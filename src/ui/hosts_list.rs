@@ -1,5 +1,4 @@
 use ratatui::{
-    backend::Backend,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
     text::{Line, Span},
@@ -8,14 +7,17 @@ use ratatui::{
 };
 use std::time::SystemTime;
 
-use crate::app::{App, InputMode, ActivePanel};
-use super::footer::draw_footer;
+use crate::app::{ActivePanel, App};
+use super::footer::{draw_footer, FooterKind};
 use super::status_bar::draw_status_bar;
 
-pub fn draw<B: Backend>(f: &mut Frame, app: &mut App) {
+/// Draw the host browser screen.
+///
+/// `is_search_mode` controls whether the search input + filtered results
+/// are shown instead of the group's hosts.
+pub fn draw(f: &mut Frame, app: &mut App, is_search_mode: bool) {
     let size = f.size();
 
-    // Create a layout with three sections: main content, status bar, and footer
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -25,22 +27,24 @@ pub fn draw<B: Backend>(f: &mut Frame, app: &mut App) {
         ].as_ref())
         .split(size);
 
-    // Draw the main content with two-panel layout
-    draw_hosts_list::<B>(f, app, chunks[0]);
+    draw_hosts_list(f, app, chunks[0], is_search_mode);
+    draw_status_bar(f, app, chunks[1]);
 
-    // Draw the status bar
-    draw_status_bar::<B>(f, app, chunks[1]);
+    let footer_kind = if app.session.is_ssh_connecting() {
+        FooterKind::Connecting
+    } else if is_search_mode {
+        FooterKind::Search
+    } else {
+        FooterKind::Normal
+    };
+    draw_footer(f, app, chunks[2], footer_kind);
 
-    // Draw the footer with navigation help
-    draw_footer::<B>(f, app, chunks[2]);
-
-    // Draw loading overlay if needed
     if app.session.is_ssh_connecting() {
-        draw_enhanced_loading_overlay::<B>(f, app);
+        draw_enhanced_loading_overlay(f, app);
     }
 }
 
-fn draw_hosts_list<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
+fn draw_hosts_list(f: &mut Frame, app: &mut App, area: Rect, is_search_mode: bool) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -49,27 +53,24 @@ fn draw_hosts_list<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
         ].as_ref())
         .split(area);
 
-    // Draw groups panel
-    draw_groups_panel::<B>(f, app, chunks[0]);
-    
-    // Draw hosts panel
-    draw_hosts_panel::<B>(f, app, chunks[1]);
+    draw_groups_panel(f, app, chunks[0]);
+    draw_hosts_panel(f, app, chunks[1], is_search_mode);
 }
 
-fn draw_groups_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
+fn draw_groups_panel(f: &mut Frame, app: &mut App, area: Rect) {
     let is_active = app.hosts.active_panel == ActivePanel::Groups;
     let title = format!(
         " {} 🫂 Groups ",
         if is_active { ">" } else { " " }
     );
-    
+
     let items: Vec<ListItem> = app.hosts.groups
         .iter()
         .enumerate()
         .map(|(i, group)| {
             let is_selected = i == app.hosts.selected_group && is_active;
             let prefix = if is_selected { "> " } else { "  " };
-            
+
             let (text_style, bg_style) = if is_selected {
                 (
                     Style::default()
@@ -81,7 +82,7 @@ fn draw_groups_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
             } else {
                 (Style::default().fg(app.ctx.theme.text), Style::default())
             };
-            
+
             let spans = vec![
                 Span::styled(prefix, text_style),
                 Span::styled(
@@ -93,34 +94,32 @@ fn draw_groups_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
                     }
                 )
             ];
-            
+
             let line = Line::from(spans);
             ListItem::new(line).style(bg_style)
         })
         .collect();
-    
+
     let border_style = if is_active {
         Style::default().fg(app.ctx.theme.primary)
     } else {
         Style::default()
     };
-    
+
     let list = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
             .border_style(border_style)
             .title(title)
     );
-    
+
     f.render_stateful_widget(list, area, &mut app.hosts.group_list_state);
 }
 
-fn draw_hosts_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
-    let is_search_mode = app.ui.input_mode == InputMode::Search;
+fn draw_hosts_panel(f: &mut Frame, app: &mut App, area: Rect, is_search_mode: bool) {
     let is_active = app.hosts.active_panel == ActivePanel::Hosts;
 
     let (list_area, list_border_style, list_title) = if is_search_mode {
-        // --- Search Mode UI ---
         let search_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -129,13 +128,12 @@ fn draw_hosts_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
             ].as_ref())
             .split(area);
 
-        // Draw search input box
         let search_title = " 🔍 Search (Press 'Esc' to exit) ";
         let search_block = Block::default()
             .borders(Borders::ALL)
             .title(search_title)
             .border_style(Style::default().fg(app.ctx.theme.highlight));
-        
+
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
@@ -146,7 +144,7 @@ fn draw_hosts_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
         let search_paragraph = Paragraph::new(search_text)
             .style(Style::default().fg(app.ctx.theme.text))
             .block(search_block);
-        
+
         f.render_widget(search_paragraph, search_chunks[0]);
 
         let results_title = format!(
@@ -161,7 +159,6 @@ fn draw_hosts_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
             results_title,
         )
     } else {
-        // --- Normal Mode UI ---
         (
             area,
             if is_active { Style::default().fg(app.ctx.theme.primary) } else { Style::default() },
@@ -169,7 +166,6 @@ fn draw_hosts_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
         )
     };
 
-    // --- Common List Rendering ---
     let hosts_to_display = if is_search_mode {
         app.search.filtered
             .iter()
@@ -189,7 +185,7 @@ fn draw_hosts_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
             })
             .collect::<Vec<_>>()
     };
-    
+
     let items: Vec<ListItem> = hosts_to_display
         .iter()
         .enumerate()
@@ -199,9 +195,9 @@ fn draw_hosts_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
             } else {
                 i == app.hosts.selected_host && app.hosts.active_panel == ActivePanel::Hosts
             };
-            
+
             let prefix = if is_selected { "> " } else { "  " };
-            
+
             let (text_style, bg_style) = if is_selected {
                 (
                     Style::default()
@@ -213,16 +209,14 @@ fn draw_hosts_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
             } else {
                 (Style::default().fg(app.ctx.theme.text), Style::default())
             };
-            
+
             let mut spans = vec![Span::styled(prefix, text_style)];
-            
-            // Add host number
+
             spans.push(Span::styled(
                 format!("[{}] ", i + 1),
                 text_style.add_modifier(Modifier::BOLD).fg(if is_selected { Color::Black } else { Color::LightYellow })
             ));
-            
-            // Add host alias with search highlighting if in search mode
+
             if is_search_mode && !app.search.query.is_empty() {
                 let alias_chars: Vec<char> = host.alias.chars().collect();
                 let mut last_idx = 0;
@@ -244,19 +238,17 @@ fn draw_hosts_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
                     spans.push(Span::styled(suffix, text_style));
                 }
             } else {
-                // Not in search mode, just add the alias
                 spans.push(Span::styled(host.alias.clone(), text_style));
             }
 
-            // Add host details
             let details = format!(" ({}@{}:{})", host.user, host.host, host.port.unwrap_or(22));
             spans.push(Span::styled(details, text_style.fg(Color::Gray)));
-            
+
             let item_text = Line::from(spans);
             ListItem::new(item_text).style(bg_style)
         })
         .collect();
-    
+
     let list = if items.is_empty() {
         let message = if is_search_mode {
             format!("No results for '{}'", app.search.query)
@@ -270,40 +262,35 @@ fn draw_hosts_panel<B: Backend>(f: &mut Frame, app: &mut App, area: Rect) {
     } else {
         List::new(items)
     };
-    
+
     let list_block = Block::default()
         .borders(Borders::ALL)
         .border_style(list_border_style)
         .title(list_title);
-    
+
     let list_widget = list.block(list_block);
-    
+
     f.render_stateful_widget(list_widget, list_area, &mut app.hosts.host_list_state);
 }
 
-fn draw_enhanced_loading_overlay<B: Backend>(f: &mut Frame, app: &App) {
+fn draw_enhanced_loading_overlay(f: &mut Frame, app: &App) {
     let area = centered_rect(60, 10, f.size());
 
-    // Get current time for animation
     let now = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_millis();
 
-    // Create animated dots
     let dots_count = (now / 500) % 4;
     let dots = ".".repeat(dots_count as usize);
     let padding = " ".repeat(3 - dots_count as usize);
 
-
-    // Get status message or default
     let status_text = if let Some((msg, _)) = &app.ui.status_message {
         msg.clone()
     } else {
         "Connecting".to_string()
     };
 
-    // Create loading content with animation
     let loading_content = if app.session.is_sftp_loading() {
         let status_text = if let Some((msg, _)) = &app.ui.status_message {
             msg.clone()
@@ -411,11 +398,10 @@ fn draw_enhanced_loading_overlay<B: Backend>(f: &mut Frame, app: &App) {
         .block(block)
         .alignment(ratatui::layout::Alignment::Center);
 
-    // Clear the area và render loading overlay
     f.render_widget(Clear, area);
     f.render_widget(paragraph, area);
 }
-    
+
 fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {
     let popup_layout = Layout::default()
         .direction(Direction::Vertical)
