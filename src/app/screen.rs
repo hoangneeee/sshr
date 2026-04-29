@@ -15,7 +15,7 @@ use crate::app::App;
 use crate::app_event::{SftpEvent, SshEvent, TransferEvent};
 use crate::models::SshHost;
 use crate::sftp_logic::types::{DownloadProgress, UploadProgress};
-use crate::ui::{hosts_list, sftp};
+use crate::ui::{hosts_list, password_prompt, sftp};
 
 /// Result of handling a key or polling worker events on the active screen.
 pub enum ScreenAction {
@@ -36,6 +36,8 @@ pub enum AppScreen {
     Sftp(SftpScreen),
     /// Placeholder while the SSH child process owns the terminal.
     SshActive(SshActiveScreen),
+    /// Modal password input shown when SFTP auth needs a fallback.
+    PasswordPrompt(PasswordPromptScreen),
 }
 
 /// Inner mode of the host browser screen.
@@ -70,6 +72,24 @@ pub struct SftpScreen;
 #[derive(Debug, Default)]
 pub struct SshActiveScreen;
 
+#[derive(Debug)]
+pub struct PasswordPromptScreen {
+    pub host: SshHost,
+    pub input: String,
+    /// `true` if a previous password was rejected; UI shows a hint.
+    pub retry: bool,
+}
+
+impl PasswordPromptScreen {
+    pub fn new(host: SshHost, retry: bool) -> Self {
+        Self {
+            host,
+            input: String::new(),
+            retry,
+        }
+    }
+}
+
 impl AppScreen {
     pub fn draw(&mut self, f: &mut Frame, app: &mut App) {
         match self {
@@ -81,13 +101,17 @@ impl AppScreen {
                 if let Some(state) = app.session.sftp_data_mut() {
                     sftp::draw_sftp(f, state, &theme);
                 } else {
-                    // SFTP data unexpectedly gone — fall back to host list so
-                    // the user isn't stuck on a blank screen.
                     hosts_list::draw(f, app, false);
                 }
             }
             Self::SshActive(_) => {
                 // TUI is suspended while the foreground ssh child runs.
+            }
+            Self::PasswordPrompt(s) => {
+                // Draw the underlying hosts view so the modal feels overlaid.
+                hosts_list::draw(f, app, false);
+                let theme = app.ctx.theme.clone();
+                password_prompt::draw(f, &s.host, &s.input, s.retry, &theme);
             }
         }
     }
@@ -99,15 +123,16 @@ impl AppScreen {
     }
 
     /// Non-blocking poll of worker channels relevant to this screen.
-    pub fn poll<B: Backend>(
+    pub async fn poll<B: Backend>(
         &mut self,
         app: &mut App,
         terminal: &mut Terminal<B>,
     ) -> Result<ScreenAction> {
         match self {
             Self::Hosts(_) => poll_hosts(app, terminal),
-            Self::Sftp(_) => poll_sftp(app),
+            Self::Sftp(_) => poll_sftp(app).await,
             Self::SshActive(_) => Ok(ScreenAction::None),
+            Self::PasswordPrompt(_) => Ok(ScreenAction::None),
         }
     }
 
@@ -124,7 +149,7 @@ impl AppScreen {
         }
     }
 
-    pub fn handle_key<B: Backend>(
+    pub async fn handle_key<B: Backend>(
         &mut self,
         key: KeyEvent,
         app: &mut App,
@@ -132,8 +157,9 @@ impl AppScreen {
     ) -> Result<ScreenAction> {
         match self {
             Self::Hosts(s) => s.handle_key(key, app),
-            Self::Sftp(s) => s.handle_key(key, app),
+            Self::Sftp(s) => s.handle_key(key, app).await,
             Self::SshActive(_) => Ok(ScreenAction::None),
+            Self::PasswordPrompt(s) => s.handle_key(key, app),
         }
     }
 }
@@ -185,7 +211,7 @@ impl HostsScreen {
             }
             KeyCode::Char('f') => {
                 if let Some(host) = host_for_mode(app, self.mode).cloned() {
-                    app.connect_sftp(host);
+                    app.connect_sftp(host, None);
                 }
                 Ok(ScreenAction::None)
             }
@@ -275,7 +301,7 @@ impl HostsScreen {
 // -----------------------------------------------------------------------------
 
 impl SftpScreen {
-    pub fn handle_key(&mut self, key: KeyEvent, app: &mut App) -> Result<ScreenAction> {
+    pub async fn handle_key(&mut self, key: KeyEvent, app: &mut App) -> Result<ScreenAction> {
         if key.code == KeyCode::Char('q') {
             tracing::info!("Exiting SFTP mode");
             app.session.reset();
@@ -291,7 +317,7 @@ impl SftpScreen {
             KeyCode::Up => sftp_state.navigate_up(),
             KeyCode::Down => sftp_state.navigate_down(),
             KeyCode::Enter | KeyCode::Backspace => {
-                if let Err(e) = sftp_state.open_selected() {
+                if let Err(e) = sftp_state.open_selected().await {
                     sftp_state.set_status_message(&format!("Error: {}", e));
                 }
             }
@@ -314,13 +340,51 @@ impl SftpScreen {
                 if let Err(e) = sftp_state.refresh_local() {
                     sftp_state.set_status_message(&format!("Local refresh error: {}", e));
                 }
-                if let Err(e) = sftp_state.refresh_remote() {
+                if let Err(e) = sftp_state.refresh_remote().await {
                     sftp_state.set_status_message(&format!("Remote refresh error: {}", e));
                 }
             }
             _ => {}
         }
         Ok(ScreenAction::None)
+    }
+}
+
+// -----------------------------------------------------------------------------
+// PasswordPromptScreen key handling
+// -----------------------------------------------------------------------------
+
+impl PasswordPromptScreen {
+    pub fn handle_key(&mut self, key: KeyEvent, app: &mut App) -> Result<ScreenAction> {
+        match key.code {
+            KeyCode::Esc => {
+                tracing::info!("User cancelled password prompt for {}", self.host.alias);
+                app.session.reset();
+                app.ui.status_message =
+                    Some(("Authentication cancelled".to_string(), Instant::now()));
+                Ok(ScreenAction::Pop)
+            }
+            KeyCode::Enter => {
+                if self.input.is_empty() {
+                    return Ok(ScreenAction::None);
+                }
+                let host = self.host.clone();
+                let pw = std::mem::take(&mut self.input);
+                app.connect_sftp(host, Some(pw));
+                Ok(ScreenAction::Pop)
+            }
+            KeyCode::Backspace | KeyCode::Delete => {
+                self.input.pop();
+                Ok(ScreenAction::None)
+            }
+            KeyCode::Char(c)
+                if !key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                self.input.push(c);
+                Ok(ScreenAction::None)
+            }
+            _ => Ok(ScreenAction::None),
+        }
     }
 }
 
@@ -341,7 +405,7 @@ fn poll_hosts<B: Backend>(
     Ok(ScreenAction::None)
 }
 
-fn poll_sftp(app: &mut App) -> Result<ScreenAction> {
+async fn poll_sftp(app: &mut App) -> Result<ScreenAction> {
     if let Some(ev) = take_sftp_event(app) {
         match ev {
             SftpEvent::Error(err) => {
@@ -358,11 +422,11 @@ fn poll_sftp(app: &mut App) -> Result<ScreenAction> {
                     Some(("SFTP session ended".to_string(), Instant::now()));
                 return Ok(ScreenAction::Pop);
             }
-            // Bootstrap events shouldn't reach an active SFTP screen.
+            // Bootstrap and AuthRequired events shouldn't reach an active SFTP screen.
             _ => {}
         }
     }
-    apply_transfer_event(app);
+    apply_transfer_event(app).await;
     Ok(ScreenAction::None)
 }
 
@@ -430,7 +494,7 @@ fn apply_sftp_event_in_hosts(app: &mut App, event: SftpEvent) -> Result<ScreenAc
         }
         SftpEvent::Connecting => {
             app.ui.status_message =
-                Some(("Testing connection...".to_string(), Instant::now()));
+                Some(("Connecting via SFTP...".to_string(), Instant::now()));
             Ok(ScreenAction::None)
         }
         SftpEvent::Connected => {
@@ -457,10 +521,23 @@ fn apply_sftp_event_in_hosts(app: &mut App, event: SftpEvent) -> Result<ScreenAc
                 Some(("SFTP session ended".to_string(), Instant::now()));
             Ok(ScreenAction::None)
         }
+        SftpEvent::AuthRequired { host, retry } => {
+            app.ui.status_message = Some((
+                if retry {
+                    format!("Wrong password for {}, try again", host.alias)
+                } else {
+                    format!("SFTP for {} needs a password", host.alias)
+                },
+                Instant::now(),
+            ));
+            Ok(ScreenAction::Push(AppScreen::PasswordPrompt(
+                PasswordPromptScreen::new(host, retry),
+            )))
+        }
     }
 }
 
-fn apply_transfer_event(app: &mut App) {
+async fn apply_transfer_event(app: &mut App) {
     let Some(session) = app.session.sftp_session_mut() else {
         return;
     };
@@ -483,12 +560,12 @@ fn apply_transfer_event(app: &mut App) {
             sftp_state.upload_progress = None;
             tracing::info!("Successfully uploaded {}", file_name);
             sftp_state.set_status_message(&format!("Successfully uploaded {}", file_name));
-            let _ = sftp_state.refresh_remote();
+            let _ = sftp_state.refresh_remote().await;
         }
         TransferEvent::UploadError(file_name, error) => {
             sftp_state.upload_progress = None;
             sftp_state.set_status_message(&format!("Upload failed for {}: {}", file_name, error));
-            let _ = sftp_state.refresh_remote();
+            let _ = sftp_state.refresh_remote().await;
         }
         TransferEvent::DownloadProgress(file_name, downloaded, total) => {
             sftp_state.download_progress = Some(DownloadProgress {

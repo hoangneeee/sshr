@@ -8,7 +8,7 @@ pub enum SshEvent {
     Disconnected,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum SftpEvent {
     Connecting,
     PreConnected(Box<AppSftpState>),
@@ -16,6 +16,13 @@ pub enum SftpEvent {
     #[allow(dead_code)]
     Disconnected,
     Error(String),
+    /// Auth could not be established with keys/agent and the worker needs
+    /// the user to supply a password to retry.
+    AuthRequired {
+        host: crate::models::SshHost,
+        /// `true` if a password was already tried and was rejected.
+        retry: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
