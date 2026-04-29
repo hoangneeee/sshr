@@ -1,0 +1,16 @@
+# Nord — https://www.nordtheme.com
+# Paste this block into ~/.config/sshr/sshr.toml under your themes list,
+# then set `default_theme = "nord"`.
+
+[[themes]]
+name = "nord"
+
+[themes.colors]
+primary    = "#88c0d0"   # nord8  — frost light blue
+secondary  = "#81a1c1"   # nord9  — frost blue
+background = "#2e3440"   # nord0
+text       = "#d8dee9"   # nord4
+highlight  = "#ebcb8b"   # nord13 — aurora yellow
+error      = "#bf616a"   # nord11 — aurora red
+warning    = "#d08770"   # nord12 — aurora orange
+success    = "#a3be8c"   # nord14 — aurora green

@@ -1,0 +1,16 @@
+# Tokyo Night — https://github.com/folke/tokyonight.nvim
+# Paste this block into ~/.config/sshr/sshr.toml under your themes list,
+# then set `default_theme = "tokyo-night"`.
+
+[[themes]]
+name = "tokyo-night"
+
+[themes.colors]
+primary    = "#7aa2f7"   # blue
+secondary  = "#7dcfff"   # cyan
+background = "#1a1b26"
+text       = "#c0caf5"
+highlight  = "#e0af68"   # yellow
+error      = "#f7768e"   # red
+warning    = "#ff9e64"   # orange
+success    = "#9ece6a"   # green
